@@ -12,6 +12,24 @@ uv sync
 uv run djcli --help
 ```
 
+## Publish (PyPI)
+
+Sibling `deploy/` holds the publish script and token (not committed).
+
+```bash
+# edit deploy/.env
+UV_PUBLISH_TOKEN=pypi-...        # https://pypi.org/manage/account/token/
+# UV_PUBLISH_TOKEN_TEST=pypi-... # optional TestPyPI token
+
+make build
+make clean
+make deploy-dry / deploy-test-dry   # uv publish --dry-run
+make deploy-test                    # TestPyPI
+make deploy                         # PyPI
+```
+
+Package version is set in `pyproject.toml` / `src/djcli/__init__.py`.
+
 ## Commands
 
 ```bash

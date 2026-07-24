@@ -4,6 +4,8 @@ venv/
 .env/
 .env.*
 !.env.examples
+# Packaged scaffold templates must ship env samples (still ignored in user repos).
+!src/djcli/data/templates/**/.env.*
 
 # Python
 __pycache__/
