@@ -1,9 +1,0 @@
----
-description: Route backend-service/ and native host edits to dj-backend-service skill
-globs: backend-service/**,browser-extension/native_*/**
-alwaysApply: false
----
-
-# Skill routing
-
-Read and follow `dj-backend-service` (with `dj-arch-core`). Do not apply other platform skills.

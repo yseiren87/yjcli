@@ -1,54 +1,35 @@
-# djcli
+# yjcli
 
-Self-contained CLI (uv + `pyproject.toml`) that scaffolds DJ platform folders, services, and Cursor/Claude agent wiring.
+CLI that scaffolds YJ platform folders, services, and Cursor/Claude agent wiring.
 
-All templates, skills, and rules ship inside the package (`src/djcli/data/`).
+Templates, skills, and rules ship inside the package (`src/yjcli/data/`) and are **copied** into the target repo (no `.agent` / symlink).
 
 ## Develop
 
 ```bash
-cd djcli
 uv sync
-uv run djcli --help
+uv run yjcli --help
+uv run yjcli --version
 ```
 
-## Publish (PyPI)
-
-Sibling `deploy/` holds the publish script and token (not committed).
-
-```bash
-# edit deploy/.env
-UV_PUBLISH_TOKEN=pypi-...        # https://pypi.org/manage/account/token/
-# UV_PUBLISH_TOKEN_TEST=pypi-... # optional TestPyPI token
-
-make build
-make clean
-make deploy-dry / deploy-test-dry   # uv publish --dry-run
-make deploy-test                    # TestPyPI
-make deploy                         # PyPI
-```
-
-Package version is set in `pyproject.toml` / `src/djcli/__init__.py`.
+Version: `pyproject.toml` `[project].version` only (`yjcli --version` reads package metadata).
 
 ## Commands
 
 ```bash
-# Bootstrap current directory: AGENTS.md/CLAUDE.md, .cursor/.claude skills+rules,
-# root Makefile/.gitignore, then create selected platform roots.
-uv run djcli init
-uv run djcli init --all
-uv run djcli init -p backend -p frontend
+# Bootstrap: AGENTS.md/CLAUDE.md, .cursor/.claude skills+rules,
+# root Makefile/.gitignore, selected platform roots.
+uv run yjcli init
+uv run yjcli init --all
+uv run yjcli init -p backend -p frontend
+uv run yjcli init --force              # overwrite existing agent assets
 
-uv run djcli add platform              # interactive: add missing platforms
-uv run djcli add platform --all
-uv run djcli add platform -p cli
+uv run yjcli add platform              # interactive: add missing platforms
+uv run yjcli add platform --all
+uv run yjcli add platform -p cli
 
-uv run djcli add service               # interactive
-uv run djcli add service -p backend -n api
+uv run yjcli add service               # interactive
+uv run yjcli add service -p backend -n api
 
-uv run djcli doctor                    # packaged asset sanity check
-uv run djcli --version
+uv run yjcli doctor                    # packaged asset sanity check
 ```
-
-Agent assets are **copied** from the package into the target repo (no `.agent` folder).
-Re-run `djcli init --force` (or answer overwrite prompts) to refresh skills/rules.

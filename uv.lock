@@ -21,17 +21,6 @@ wheels = [
 ]
 
 [[package]]
-name = "djcli"
-version = "0.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "typer" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "typer", specifier = ">=0.12" }]
-
-[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -97,3 +86,14 @@ sdist = { url = "https://files.pythonhosted.org/packages/37/78/fda3361b56efc2794
 wheels = [
     { url = "https://files.pythonhosted.org/packages/40/03/26a383c9e58c213199d1aad1c3d353cfc22d4444ec6d2c0bf8ad02523843/typer-0.27.0-py3-none-any.whl", hash = "sha256:6f4b27631e47f077871b7dc30e933ec0131c1390fbe0e387ea5574b5bac9ccf1", size = 122716, upload-time = "2026-07-15T19:21:05.553Z" },
 ]
+
+[[package]]
+name = "yjcli"
+version = "0.0.2"
+source = { editable = "." }
+dependencies = [
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "typer", specifier = ">=0.12" }]

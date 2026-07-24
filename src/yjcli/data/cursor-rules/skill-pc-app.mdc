@@ -1,0 +1,9 @@
+---
+description: Route pc-app/ edits to yj-pc-app skill
+globs: pc-app/**
+alwaysApply: false
+---
+
+# Skill routing
+
+Read and follow `yj-pc-app` (with `yj-arch-core`). Do not apply other platform skills.
