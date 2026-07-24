@@ -51,11 +51,12 @@ Out of scope: app business logic, scaffold of product code, editor agent rules (
 | ID | Requirement |
 |----|-------------|
 | S1 | No secrets in git. Tokens only via I9/I10/I11. |
-| S2 | Destructive steps (publish, push, tag) require explicit confirmation, default **No**. |
-| S3 | User can abort the whole flow with a clear cancel word (recommend `exit`) on any prompt. |
+| S2 | Destructive steps (publish, push, tag) require **explicit** confirmation (`y`/`n`). No default answer. |
+| S3 | User can abort the whole flow with `exit` on any prompt (clean exit). |
 | S4 | Steps are logged with clear section boundaries (readable in a terminal). |
 | S5 | Missing config/secrets → fail with actionable message (what to set, where). |
 | S6 | Do not force-overwrite existing git tags matching I12 unless the project explicitly opts in (default: **fail**). |
+| S7 | Interactive answers: yes/no prompts accept only `y`/`n`/`exit` (also `yes`/`no`). Empty or other input → **re-ask** (never treat Enter as No/Yes). Free-text prompts: empty → re-ask unless the step allows empty; `exit` cancels. |
 
 ---
 
@@ -69,7 +70,7 @@ Out of scope: app business logic, scaffold of product code, editor agent rules (
 | V2 | Support bumps: `major` → `X+1.0.0`, `minor` → `X.Y+1.0`, `fix` → `X.Y.Z+1`. |
 | V3 | After bump, write I2; if I3 is non-empty, update those to the same version. |
 | V4 | Optional: show latest version from production target I7 when query is possible; if unavailable, warn and continue. |
-| V5 | Interactive bump: ask whether to bump; if yes, ask `major`/`minor`/`fix` (invalid/empty → re-ask; cancel per S3). |
+| V5 | Interactive bump: ask whether to bump (S7); if yes, ask `major`/`minor`/`fix` (invalid/empty → re-ask; cancel per S3). |
 | V6 | Non-interactive mode (optional): accept bump kind via flags/env; do not hang on stdin. |
 
 ### 3.2 Acceptance
@@ -88,14 +89,14 @@ Out of scope: app business logic, scaffold of product code, editor agent rules (
 | D1 | **Test**: run project-defined verification before publish (unit/smoke/e2e — project chooses). Fail stops the pipeline. |
 | D2 | **Build**: produce publishable artifact(s) for I7 (and I8 if used). |
 | D3 | **Validate** (recommended): dry-run or registry check when the ecosystem supports it. |
-| D4 | **Confirm** then **Publish** to I7 using I10. Default confirm = No. |
+| D4 | **Confirm** then **Publish** to I7 using I10. Confirm per S7 (`y`/`n`/`exit`; no default). |
 | D5 | Provide a **staging path** when I8 exists: publish to I8 without requiring a version bump or git push (unless project opts in). |
 | D6 | Production path may optionally chain into C3 after successful publish (project chooses). |
 
 ### 4.2 Acceptance
 
 - Failed D1 or D2 → no publish.
-- Declined confirm → no publish, exit cleanly.
+- Confirm `n` → no publish, abort. Confirm empty/garbage → re-ask. `exit` → clean cancel.
 - Missing I10 → fail per S5.
 
 ---
@@ -108,15 +109,16 @@ Out of scope: app business logic, scaffold of product code, editor agent rules (
 |----|----------|
 | G1 | Operate only on git root I4. |
 | G2 | Show status: branch, remote I6, current version (I2), whether tag I12(version) exists. |
-| G3 | **Commit** (optional): if working tree dirty, ask to commit; require non-empty message; cancel per S3. If clean, skip. |
-| G4 | **Tag**: create tag from I12 + current I2 version; if exists → fail (S6). |
-| G5 | **Push**: push current branch + new tag to I6. |
+| G3 | **Commit**: if working tree dirty, ask to commit (S7). `n` or cancel → **stop** (no tag/push). Require non-empty message. If clean, proceed without a new commit. |
+| G4 | **Tag**: create tag from I12 + current I2 version; confirm per S7; if exists → fail (S6). |
+| G5 | **Push**: confirm per S7, then push current branch + new tag to I6. |
 | G6 | Auth: non-interactive for scripted use (PAT from I11 for HTTPS, or SSH agent). Do not open browser login flows in the happy path. |
 | G7 | Never persist raw tokens into remote URLs in git config. |
 
 ### 5.2 Acceptance
 
-- Clean tree + new version tag → tag created and pushed when confirmed.
+- Clean tree + new version tag → tag created and pushed when confirmed (`y`).
+- Dirty tree + commit declined (`n`) → no tag, no push.
 - Existing tag → fail, no force-push by default.
 - Missing I11 when HTTPS PAT is required → fail per S5.
 

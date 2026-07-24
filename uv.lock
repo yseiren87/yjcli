@@ -89,7 +89,7 @@ wheels = [
 
 [[package]]
 name = "yjcli"
-version = "0.0.3"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "typer" },

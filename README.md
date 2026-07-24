@@ -2,41 +2,89 @@
 
 CLI that scaffolds YJ platform folders, services, and Cursor/Claude agent wiring.
 
-Templates, skills, and rules ship inside the package (`src/yjcli/data/`) and are **copied** into the target repo (no `.agent` / symlink).
+Templates, skills, and rules ship inside the package and are **copied** into the target repo.
 
-## Develop
+## Install
 
 ```bash
-uv sync
-uv run yjcli --help
-uv run yjcli --version
+uv tool install yjcli
+# pin a version:
+uv tool install yjcli==0.0.3
+
+yjcli --version
+yjcli -h
 ```
 
-Version: `pyproject.toml` `[project].version` only (`yjcli --version` reads package metadata).
+Upgrade / remove:
+
+```bash
+uv tool upgrade yjcli
+uv tool uninstall yjcli
+```
+
+## Quick start
+
+```bash
+uv tool install yjcli
+cd /path/to/your-repo
+yjcli init --all
+# edit AGENTS.md, then:
+yjcli sync agents
+```
+
+## Platforms
+
+Use with `-p` / `--platform` (repeatable):
+
+`backend` · `backend-service` · `frontend` · `mobile-app` · `pc-app` · `cli` · `browser-extension`
+
+## What `init` creates
+
+- `AGENTS.md`, `CLAUDE.md` (mirror of `AGENTS.md`)
+- `.cursor/` / `.claude/` skills, rules, and Claude `settings.json`
+- Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
+- Selected platform roots (and shared `scripts/` helpers)
+
+## Sync
+
+| Command | When |
+|---------|------|
+| `yjcli sync agents` | After editing `AGENTS.md` — refreshes `CLAUDE.md` |
+| `yjcli sync skills` | Refresh packaged skills only |
+| `yjcli sync rules` | Refresh packaged rules only |
+| `yjcli sync all` | After upgrading `yjcli` — agents + skills + rules |
+
+Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand.
+
+## Options
+
+- `--path <dir>` — target repo root (default: current directory). Works on `init`, `add`, `sync`.
+- `--force` / `-f` — overwrite existing root/agent files without prompting (`init`, `add`).
+
+## Notes
+
+- `add service` needs the platform root first (`init` or `add platform`).
+- Non-interactive use requires flags (`-p` / `-n` / `--all`, etc.); omit them only in a TTY prompt.
+- `doctor` checks the **installed package** assets, not your target repo.
 
 ## Commands
 
 ```bash
-# Bootstrap: AGENTS.md/CLAUDE.md, .cursor/.claude skills+rules,
-# root Makefile/TOOLS.md/.gitignore, selected platform roots.
-uv run yjcli init
-uv run yjcli init --all
-uv run yjcli init -p backend -p frontend
-uv run yjcli init --force              # overwrite existing agent assets
+yjcli init
+yjcli init --all
+yjcli init -p backend -p frontend
+yjcli init --force
 
-uv run yjcli add platform              # interactive: add missing platforms
-uv run yjcli add platform --all
-uv run yjcli add platform -p cli
+yjcli add platform
+yjcli add platform --all
+yjcli add platform -p cli
 
-uv run yjcli add service               # interactive
-uv run yjcli add service -p backend -n api
+yjcli add service
+yjcli add service -p backend -n api
 
-uv run yjcli sync agents               # AGENTS.md → CLAUDE.md
-uv run yjcli sync skills               # packaged skills → .cursor/.claude
-uv run yjcli sync rules                # packaged rules → .cursor/.claude
-uv run yjcli sync all                  # agents + skills + rules
-uv run yjcli doctor                    # packaged asset sanity check
+yjcli sync agents
+yjcli sync skills
+yjcli sync rules
+yjcli sync all
+yjcli doctor
 ```
-
-Edit `AGENTS.md` only; run `yjcli sync agents` (or `sync all`) to refresh `CLAUDE.md`.
-
