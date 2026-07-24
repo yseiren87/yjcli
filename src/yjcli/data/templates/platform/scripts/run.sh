@@ -1,53 +1,24 @@
 #!/usr/bin/env bash
-# Run a service under this platform.
+# Run service(s) under this platform.
 # Always loads {service}/.env.local-dev (never development/production).
-# Usage: ./scripts/run.sh <service_name> [args...]
+# Usage:
+#   ./scripts/run.sh                 # all services concurrently
+#   ./scripts/run.sh <service> [args...]
 set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PLATFORM_DIR"
 
-if [ "${#}" -lt 1 ]; then
-  echo "Usage: $0 <service_name> [args...]"
-  echo "Available services:"
+list_services() {
+  local d name
   for d in */ ; do
     name="${d%/}"
     case "$name" in
       scripts|proto) continue ;;
     esac
-    [ -d "$name" ] && echo "  $name"
-  done
-  exit 1
-fi
-
-NAME="$1"
-shift
-case "$NAME" in
-  scripts|proto)
-    echo "reserved name: $NAME"
-    exit 1
-    ;;
-esac
-
-SERVICE_DIR="$PLATFORM_DIR/$NAME"
-ENV_FILE="$SERVICE_DIR/.env.local-dev"
-PID_FILE="$SERVICE_DIR/.run.pid"
-
-if [ ! -d "$SERVICE_DIR" ]; then
-  echo "unknown service: $NAME (expected $SERVICE_DIR)"
-  exit 1
-fi
-
-if [ ! -f "$ENV_FILE" ]; then
-  echo "missing $ENV_FILE (local run always uses .env.local-dev)"
-  exit 1
-fi
-
-# Load KEY=VALUE from .env.local-dev (ignore comments/blank lines)
-set -a
-# shellcheck disable=SC1090
-source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
-set +a
+    [ -d "$name" ] && printf '%s\n' "$name"
+  done | sort
+}
 
 kill_by_port() {
   local port="$1"
@@ -69,77 +40,151 @@ kill_by_port() {
 }
 
 kill_by_pidfile() {
-  if [ ! -f "$PID_FILE" ]; then
+  local pid_file="$1"
+  if [ ! -f "$pid_file" ]; then
     return 0
   fi
   local old_pid
-  old_pid="$(tr -d '[:space:]' <"$PID_FILE" || true)"
+  old_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
   if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-    echo "stopping pid $old_pid from $PID_FILE"
+    echo "stopping pid $old_pid from $pid_file"
     kill "$old_pid" 2>/dev/null || true
     sleep 0.3
     kill -9 "$old_pid" 2>/dev/null || true
   fi
-  rm -f "$PID_FILE"
+  rm -f "$pid_file"
 }
 
-echo "env: $ENV_FILE"
-if [ -n "${PORT:-}" ]; then
-  kill_by_port "$PORT"
-else
-  echo "PORT unset in .env.local-dev; using pidfile fallback"
-fi
-kill_by_pidfile
+run_one() {
+  local NAME="$1"
+  shift || true
+  case "$NAME" in
+    scripts|proto)
+      echo "reserved name: $NAME"
+      return 1
+      ;;
+  esac
 
-start_and_track() {
-  # Runs command in background, writes pid, waits (Ctrl+C forwards signal)
-  "$@" &
-  local pid=$!
-  echo "$pid" >"$PID_FILE"
-  echo "started pid $pid (tracked in $PID_FILE)"
-  trap 'kill "$pid" 2>/dev/null || true; rm -f "$PID_FILE"; exit 130' INT TERM
-  wait "$pid"
-  local code=$?
-  rm -f "$PID_FILE"
-  exit "$code"
-}
+  local SERVICE_DIR="$PLATFORM_DIR/$NAME"
+  local ENV_FILE="$SERVICE_DIR/.env.local-dev"
+  local PID_FILE="$SERVICE_DIR/.run.pid"
 
-cd "$SERVICE_DIR"
-
-if [ -f "Makefile" ]; then
-  export HOST="${HOST:-}"
-  export PORT="${PORT:-}"
-  start_and_track make run "$@"
-fi
-
-if [ -f "package.json" ]; then
-  export HOST="${HOST:-}"
-  export PORT="${PORT:-}"
-  extra=()
-  if [ -n "${HOST:-}" ]; then
-    extra+=(--host "$HOST")
+  if [ ! -d "$SERVICE_DIR" ]; then
+    echo "unknown service: $NAME (expected $SERVICE_DIR)"
+    return 1
   fi
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "missing $ENV_FILE (local run always uses .env.local-dev)"
+    return 1
+  fi
+
+  # Load KEY=VALUE from .env.local-dev (ignore comments/blank lines)
+  set -a
+  # shellcheck disable=SC1090
+  source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
+  set +a
+
+  echo "[$NAME] env: $ENV_FILE"
   if [ -n "${PORT:-}" ]; then
-    extra+=(--port "$PORT")
+    kill_by_port "$PORT"
+  else
+    echo "[$NAME] PORT unset in .env.local-dev; using pidfile fallback"
   fi
-  if npm run | grep -qE '^  start$'; then
-    # Prefer passing host/port through to vite when present
-    if [ "${#extra[@]}" -gt 0 ]; then
-      start_and_track npm start -- "${extra[@]}" "$@"
-    else
-      start_and_track npm start -- "$@"
+  kill_by_pidfile "$PID_FILE"
+
+  start_and_track() {
+    "$@" &
+    local pid=$!
+    echo "$pid" >"$PID_FILE"
+    echo "[$NAME] started pid $pid (tracked in $PID_FILE)"
+    trap 'kill "$pid" 2>/dev/null || true; rm -f "$PID_FILE"; exit 130' INT TERM
+    wait "$pid"
+    local code=$?
+    rm -f "$PID_FILE"
+    exit "$code"
+  }
+
+  cd "$SERVICE_DIR"
+
+  if [ -f "Makefile" ]; then
+    export HOST="${HOST:-}"
+    export PORT="${PORT:-}"
+    start_and_track make run "$@"
+  fi
+
+  if [ -f "package.json" ]; then
+    export HOST="${HOST:-}"
+    export PORT="${PORT:-}"
+    local -a extra=()
+    if [ -n "${HOST:-}" ]; then
+      extra+=(--host "$HOST")
     fi
-  fi
-  if npm run | grep -qE '^  dev$'; then
-    if [ "${#extra[@]}" -gt 0 ]; then
-      start_and_track npm run dev -- "${extra[@]}" "$@"
-    else
-      start_and_track npm run dev -- "$@"
+    if [ -n "${PORT:-}" ]; then
+      extra+=(--port "$PORT")
     fi
+    if npm run | grep -qE '^  start$'; then
+      if [ "${#extra[@]}" -gt 0 ]; then
+        start_and_track npm start -- "${extra[@]}" "$@"
+      else
+        start_and_track npm start -- "$@"
+      fi
+    fi
+    if npm run | grep -qE '^  dev$'; then
+      if [ "${#extra[@]}" -gt 0 ]; then
+        start_and_track npm run dev -- "${extra[@]}" "$@"
+      else
+        start_and_track npm run dev -- "$@"
+      fi
+    fi
+    start_and_track npm start -- "$@"
   fi
-  start_and_track npm start -- "$@"
+
+  echo "[$NAME] exists at $SERVICE_DIR"
+  echo "No run convention found yet (add Makefile target 'run' or package.json scripts)."
+  return 1
+}
+
+run_all() {
+  local -a services=()
+  local line name
+  while IFS= read -r line; do
+    [ -n "$line" ] && services+=("$line")
+  done < <(list_services)
+
+  if [ "${#services[@]}" -eq 0 ]; then
+    echo "no services under $PLATFORM_DIR (run: yjcli add service)"
+    exit 1
+  fi
+
+  echo "starting ${#services[@]} service(s) concurrently: ${services[*]}"
+  local -a pids=()
+  for name in "${services[@]}"; do
+    ( run_one "$name" ) &
+    pids+=($!)
+  done
+
+  cleanup() {
+    local p
+    for p in "${pids[@]}"; do
+      kill "$p" 2>/dev/null || true
+    done
+  }
+  trap cleanup INT TERM
+
+  local fail=0
+  local p
+  for p in "${pids[@]}"; do
+    if ! wait "$p"; then
+      fail=1
+    fi
+  done
+  exit "$fail"
+}
+
+if [ "${#}" -lt 1 ]; then
+  run_all
 fi
 
-echo "Service '$NAME' exists at $SERVICE_DIR"
-echo "No run convention found yet (add Makefile target 'run' or package.json scripts)."
-exit 1
+NAME="$1"
+shift
+run_one "$NAME" "$@"

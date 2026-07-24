@@ -40,7 +40,9 @@ browser-extension/    # yj-browser-extension
 - `backend/proto/` is reserved (see yj-backend-msa).
 - `browser-extension/native_{name}/` → **yj-backend-service**.
 - Do not invent new platform roots or put app code at repo root.
-- Do not add per-service `scripts/` or edit root Makefile for each new service.
+- Do not add per-service `scripts/` or edit root Makefile for each new service/platform.
+  Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
+  Platforms are discovered via `*/scripts/run.sh`; services via sibling dirs (no script edits on `add service`).
 
 ## Environment (guardrails only)
 
@@ -49,8 +51,12 @@ Allowed files at each service root (no plain `.env`):
 `.env.local-dev` · `.env.development` · `.env.production` · `.env.examples`
 
 - Do not invent alternate names (including Vite `.env` / `.env.local`) unless a thin loader maps to this set.
-- Env field sets come from `templates/platform/<platform>/`. `browser-extension/native_*` uses the `backend-service` templates. Do not invent fields/filenames outside those templates.
-- `HOST`/`PORT` are only required when the service actually listens (e.g. backend MSA, frontend). For `backend-service` they are optional — add only if needed.
+- Env field sets come from `templates/platform/envs/<kind>/` via platform mapping (`listen` / `worker` / `app`).
+  - `listen`: `backend` (PORT 8080), `frontend` (PORT 5173)
+  - `worker`: `backend-service`, `browser-extension/native_*` (HOST/PORT optional comments)
+  - `app`: `cli`, `mobile-app`, `pc-app`, `browser-extension` (NAME/VERSION only)
+  Do not invent fields/filenames outside those templates.
+- `HOST`/`PORT` are required for `listen`. For `worker` they are optional — add only if needed.
 - Commit `.env.examples` only; never commit the other three.
 - Local platform `run.*` uses `.env.local-dev` only — do not hardcode HOST/PORT in scripts.
 

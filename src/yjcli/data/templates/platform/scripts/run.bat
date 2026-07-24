@@ -3,14 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "PLATFORM_DIR=%~dp0.."
 cd /d "%PLATFORM_DIR%"
 
-if "%~1"=="" (
-  echo Usage: scripts\run.bat ^<service_name^> [args...]
-  echo Available services:
-  for /d %%D in (*) do (
-    if /I not "%%~nxD"=="scripts" if /I not "%%~nxD"=="proto" echo   %%~nxD
-  )
-  exit /b 1
-)
+if "%~1"=="" goto run_all
 
 set "NAME=%~1"
 shift
@@ -41,12 +34,12 @@ for /f "usebackq tokens=1* delims==" %%A in (`findstr /R "^[A-Za-z_][A-Za-z0-9_]
   set "%%A=%%B"
 )
 
-echo env: %ENV_FILE%
+echo [%NAME%] env: %ENV_FILE%
 
 if defined PORT (
   call :kill_by_port %PORT%
 ) else (
-  echo PORT unset in .env.local-dev; using pidfile fallback
+  echo [%NAME%] PORT unset in .env.local-dev; using pidfile fallback
 )
 call :kill_by_pidfile
 
@@ -65,8 +58,26 @@ if exist "package.json" (
   exit /b %ERRORLEVEL%
 )
 
-echo Service '%NAME%' exists but has no run convention yet.
+echo [%NAME%] exists but has no run convention yet.
 exit /b 1
+
+:run_all
+set "ANY="
+for /d %%D in (*) do (
+  if /I not "%%~nxD"=="scripts" if /I not "%%~nxD"=="proto" (
+    if exist "%%D\.env.local-dev" (
+      echo starting %%~nxD
+      start "%%~nxD" cmd /c "cd /d "%PLATFORM_DIR%" && call scripts\run.bat %%~nxD"
+      set "ANY=1"
+    )
+  )
+)
+if not defined ANY (
+  echo no services under %PLATFORM_DIR% ^(run: yjcli add service^)
+  exit /b 1
+)
+echo All services started in separate windows.
+exit /b 0
 
 :kill_by_port
 set "KPORT=%~1"

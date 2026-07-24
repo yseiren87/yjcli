@@ -9,12 +9,22 @@ from pathlib import Path
 import typer
 
 from yjcli.modules import paths
-from yjcli.modules.constants import PLATFORMS, RESERVED_SERVICE_NAMES
+from yjcli.modules.constants import (
+    PLATFORM_ENV,
+    PLATFORMS,
+    RESERVED_SERVICE_NAMES,
+)
 from yjcli.modules.fsutil import copy_file, write_if_missing
 from yjcli.modules.prompt import abort, select_existing_platform, select_platforms
 from yjcli.services import wiring
 
 _SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
+_ENV_FILE_NAMES = (
+    ".env.local-dev",
+    ".env.development",
+    ".env.production",
+    ".env.examples",
+)
 
 
 def existing_platforms(root: Path) -> list[str]:
@@ -50,27 +60,55 @@ def create_platform(root: Path, platform: str) -> None:
     typer.echo(f"created platform: {dest}/ (scripts from templates)")
 
 
-def _platform_service_template_dir(platform: str, name: str) -> Path:
-    templates = paths.templates_dir()
+def _env_kind_for(platform: str, name: str) -> tuple[str, dict[str, str]]:
+    """Return (env kind, placeholder map). native_* uses worker like backend-service."""
     if platform == "browser-extension" and name.startswith("native_"):
-        return templates / "platform" / "backend-service"
-    return templates / "platform" / platform
+        return "worker", {}
+    mapped = PLATFORM_ENV.get(platform)
+    if not mapped:
+        abort(f"no env mapping for platform: {platform}")
+    return mapped
 
 
-def _copy_platform_service_files(platform: str, name: str, dest: Path) -> None:
-    src = _platform_service_template_dir(platform, name)
+def _copy_env_templates(platform: str, name: str, dest: Path) -> None:
+    kind, extra = _env_kind_for(platform, name)
+    src = paths.templates_dir() / "platform" / "envs" / kind
     if not src.is_dir():
-        abort(f"missing platform template dir: {src}")
+        abort(f"missing env template dir: {src}")
 
+    replace = {"__NAME__": name, **extra}
+    for filename in _ENV_FILE_NAMES:
+        file = src / filename
+        if not file.is_file():
+            abort(f"missing env template: {file}")
+        target = dest / filename
+        if target.exists():
+            typer.echo(f"skip (exists): {target}")
+            continue
+        copy_file(file, target, replace=replace, force=True)
+
+
+def _copy_platform_extras(platform: str, name: str, dest: Path) -> None:
+    """Copy non-env platform assets (e.g. frontend package.json)."""
+    src = paths.templates_dir() / "platform" / platform
+    if not src.is_dir():
+        return
     replace = {"__NAME__": name}
     for file in sorted(src.iterdir()):
         if not file.is_file():
+            continue
+        if file.name.startswith(".env"):
             continue
         target = dest / file.name
         if target.exists():
             typer.echo(f"skip (exists): {target}")
             continue
         copy_file(file, target, replace=replace, force=True)
+
+
+def _copy_platform_service_files(platform: str, name: str, dest: Path) -> None:
+    _copy_env_templates(platform, name, dest)
+    _copy_platform_extras(platform, name, dest)
 
 
 def create_service(root: Path, platform: str, name: str) -> None:
@@ -197,5 +235,6 @@ def add_service_flow(
         abort("name required")
 
     create_service(root, chosen, name)
-    typer.echo(f"run: make run PLATFORM={chosen} NAME={name}")
-    typer.echo(f"  or: {chosen}/scripts/run.sh {name}")
+    typer.echo(f"run all: make {chosen}")
+    typer.echo(f"run one: make {chosen} NAME={name}")
+    typer.echo(f"  or: {chosen}/scripts/run.sh [{name}]")

@@ -1,14 +1,31 @@
-.PHONY: help run
+# Platform targets are discovered from */scripts/run.sh (after yjcli add platform).
+# Usage:
+#   make <platform>                 # all services under that platform (concurrent)
+#   make <platform> NAME=<service>  # one service
+
+PLATFORMS := $(patsubst %/scripts/run.sh,%,$(wildcard */scripts/run.sh))
+
+.PHONY: help $(PLATFORMS)
 
 help:
 	@echo "Usage:"
-	@echo "  make run PLATFORM=<platform> NAME=<service> [ARGS='...']"
+	@echo "  make <platform>                 # start all services concurrently"
+	@echo "  make <platform> NAME=<service>  # start one service"
 	@echo ""
-	@echo "Platforms: backend backend-service frontend mobile-app pc-app cli browser-extension"
-	@echo "Delegates to: <PLATFORM>/scripts/run.sh <NAME> ..."
+	@echo "Available platforms (dirs with scripts/run.sh):"
+	@if [ -z "$(PLATFORMS)" ]; then \
+		echo "  (none — run: yjcli add platform)"; \
+	else \
+		for p in $(PLATFORMS); do echo "  $$p"; done; \
+	fi
+	@echo ""
+	@echo "Example: make backend"
+	@echo "         make backend NAME=api"
 
-run:
-	@test -n "$(PLATFORM)" || (echo "PLATFORM required"; exit 1)
-	@test -n "$(NAME)" || (echo "NAME required"; exit 1)
-	@test -x "$(PLATFORM)/scripts/run.sh" || (echo "missing: $(PLATFORM)/scripts/run.sh (run: yjcli add platform)"; exit 1)
-	@"$(PLATFORM)/scripts/run.sh" "$(NAME)" $(ARGS)
+$(PLATFORMS):
+	@test -x "$@/scripts/run.sh" || (echo "missing: $@/scripts/run.sh"; exit 1)
+	@if [ -n "$(NAME)" ]; then \
+		"$@/scripts/run.sh" "$(NAME)" $(ARGS); \
+	else \
+		"$@/scripts/run.sh" $(ARGS); \
+	fi

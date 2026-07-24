@@ -17,7 +17,7 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 | `AGENTS.md` | Agent / contributor guide (this file) |
 | `CLAUDE.md` | Mirror of `AGENTS.md` — do not edit; refresh with `yjcli sync agents` |
 | `TOOLS.md` | Release-tools feature spec (version / deploy / git) |
-| `Makefile` | Root run entry (`make run PLATFORM=… NAME=…`) |
+| `Makefile` | Root run entry — `make <platform>` (all services) or `NAME=<service>` (one); platforms auto-discovered |
 | `make.bat` | Windows counterpart of root Makefile |
 | `.gitignore` | Canonical ignore rules |
 | `.cursor/skills/` | Cursor skills (copied from package) |

@@ -25,7 +25,7 @@ backend-service/
     views/              # optional — only if SSR/templating enabled
 ```
 
-`browser-extension/native_{name}/` uses the same roles and the same env templates as `backend-service` (scaffolded from `templates/platform/backend-service/`). Prefer calling it a native host service, not an MSA node, unless the user explicitly adopts MSA.
+`browser-extension/native_{name}/` uses the same roles and the `worker` env templates as `backend-service`. Prefer calling it a native host service, not an MSA node, unless the user explicitly adopts MSA.
 
 `HOST`/`PORT` are **optional** here — add them to `.env.*` only when the process actually listens.
 

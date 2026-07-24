@@ -1,4 +1,4 @@
-"""yjcli sync <what> — refresh agent docs / skills / rules."""
+"""yjcli sync <what> — refresh agent docs / skills / rules / make."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import typer
 from yjcli.services import sync as sync_svc
 
 app = typer.Typer(
-    help="Sync AGENTS.md mirror, skills, or rules into the target repo.",
+    help="Sync AGENTS.md mirror, skills, rules, or Makefile/make.bat into the target repo.",
     no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
@@ -60,6 +60,21 @@ def sync_rules(
     sync_svc.sync_rules(path, force=True)
 
 
+@app.command("make")
+def sync_make(
+    path: Path = typer.Option(
+        Path("."),
+        "--path",
+        help="Target repository root (default: cwd).",
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+) -> None:
+    """Overwrite root Makefile/make.bat and installed platforms' run.sh/run.bat."""
+    sync_svc.sync_make(path, force=True)
+
+
 @app.command("all")
 def sync_all(
     path: Path = typer.Option(
@@ -71,5 +86,5 @@ def sync_all(
         resolve_path=True,
     ),
 ) -> None:
-    """Sync AGENTS.md → CLAUDE.md, skills, and rules together."""
+    """Sync AGENTS.md → CLAUDE.md, skills, rules, make files, and platform run scripts."""
     sync_svc.sync_all(path, force=True)
