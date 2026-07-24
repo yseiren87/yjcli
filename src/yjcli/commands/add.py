@@ -10,7 +10,10 @@ import typer
 from yjcli.modules.constants import PLATFORMS
 from yjcli.services import scaffold
 
-app = typer.Typer(help="Add a platform or service to the current repo.")
+app = typer.Typer(
+    help="Add a platform or service to the current repo.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @app.command("platform")

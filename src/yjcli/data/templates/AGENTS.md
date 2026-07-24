@@ -10,9 +10,21 @@
 
 ## 2. Repository layout
 
+Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>` as needed.
+
 | Path | Role |
 |------|------|
-| `<path>/` | `<role>` |
+| `AGENTS.md` | Agent / contributor guide (this file) |
+| `CLAUDE.md` | Mirror of `AGENTS.md` — do not edit; refresh with `yjcli sync agents` |
+| `TOOLS.md` | Release-tools feature spec (version / deploy / git) |
+| `Makefile` | Root run entry (`make run PLATFORM=… NAME=…`) |
+| `make.bat` | Windows counterpart of root Makefile |
+| `.gitignore` | Canonical ignore rules |
+| `.cursor/skills/` | Cursor skills (copied from package) |
+| `.cursor/rules/` | Cursor rules (copied from package) |
+| `.claude/skills/` | Claude skills (copied from package) |
+| `.claude/rules/` | Claude rules (copied from package) |
+| `.claude/settings.json` | Claude settings |
 | `<path>/` | `<role>` |
 | `<path>/` | `<role>` |
 
@@ -105,5 +117,6 @@
 
 | Kind | Location |
 |------|----------|
+| Release tools spec | `TOOLS.md` |
 | `<kind>` | `<path>` |
 | `<kind>` | `<path>` |

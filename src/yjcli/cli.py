@@ -8,6 +8,7 @@ from typing import Optional
 import typer
 
 from yjcli.commands import add
+from yjcli.commands import sync
 from yjcli.commands.init_cmd import init_cmd
 from yjcli.services import status
 
@@ -20,10 +21,13 @@ def package_version() -> str:
         return "0.0.0+local"
 
 
+_HELP_CONTEXT = {"help_option_names": ["-h", "--help"]}
+
 app = typer.Typer(
     name="yjcli",
     help="Scaffold YJ platforms/services and Cursor/Claude agent wiring.",
     no_args_is_help=True,
+    context_settings=_HELP_CONTEXT,
 )
 
 
@@ -49,6 +53,7 @@ def main(
 
 app.command("init")(init_cmd)
 app.add_typer(add.app, name="add")
+app.add_typer(sync.app, name="sync")
 
 
 @app.command("doctor")

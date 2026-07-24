@@ -18,7 +18,7 @@ Version: `pyproject.toml` `[project].version` only (`yjcli --version` reads pack
 
 ```bash
 # Bootstrap: AGENTS.md/CLAUDE.md, .cursor/.claude skills+rules,
-# root Makefile/.gitignore, selected platform roots.
+# root Makefile/TOOLS.md/.gitignore, selected platform roots.
 uv run yjcli init
 uv run yjcli init --all
 uv run yjcli init -p backend -p frontend
@@ -31,5 +31,12 @@ uv run yjcli add platform -p cli
 uv run yjcli add service               # interactive
 uv run yjcli add service -p backend -n api
 
+uv run yjcli sync agents               # AGENTS.md → CLAUDE.md
+uv run yjcli sync skills               # packaged skills → .cursor/.claude
+uv run yjcli sync rules                # packaged rules → .cursor/.claude
+uv run yjcli sync all                  # agents + skills + rules
 uv run yjcli doctor                    # packaged asset sanity check
 ```
+
+Edit `AGENTS.md` only; run `yjcli sync agents` (or `sync all`) to refresh `CLAUDE.md`.
+
