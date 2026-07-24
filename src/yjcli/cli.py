@@ -7,7 +7,8 @@ from typing import Optional
 
 import typer
 
-from yjcli.commands import add
+from yjcli.commands import platform
+from yjcli.commands import service
 from yjcli.commands import sync
 from yjcli.commands.init_cmd import init_cmd
 from yjcli.services import status
@@ -52,7 +53,8 @@ def main(
 
 
 app.command("init")(init_cmd)
-app.add_typer(add.app, name="add")
+app.add_typer(platform.app, name="platform")
+app.add_typer(service.app, name="service")
 app.add_typer(sync.app, name="sync")
 
 

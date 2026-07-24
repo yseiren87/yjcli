@@ -30,7 +30,7 @@ def select_platforms(*, mode: str, root_exists: set[str]) -> list[str]:
     typer.echo("  a) all listed", err=True)
 
     if not is_interactive():
-        abort("non-interactive stdin; pass --platform / --all")
+        abort("non-interactive stdin; pass --type / --all")
 
     line = typer.prompt("Enter numbers (e.g. 1 3) or a").strip()
     if line.lower() in {"a", "all"}:
@@ -59,7 +59,7 @@ def select_existing_platform(existing: list[str]) -> str:
         typer.echo(f"  {i}) {name}", err=True)
 
     if not is_interactive():
-        abort("non-interactive stdin; pass --platform")
+        abort("non-interactive stdin; pass --type")
 
     token = typer.prompt("Enter number").strip()
     if not token.isdigit():

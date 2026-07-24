@@ -1,4 +1,4 @@
-# Platform targets are discovered from */scripts/run.sh (after yjcli add platform).
+# Platform targets are discovered from */scripts/run.sh (after yjcli platform add).
 # Usage:
 #   make <platform>                 # all services under that platform (concurrent)
 #   make <platform> NAME=<service>  # one service
@@ -14,7 +14,7 @@ help:
 	@echo ""
 	@echo "Available platforms (dirs with scripts/run.sh):"
 	@if [ -z "$(PLATFORMS)" ]; then \
-		echo "  (none — run: yjcli add platform)"; \
+		echo "  (none — run: yjcli platform add)"; \
 	else \
 		for p in $(PLATFORMS); do echo "  $$p"; done; \
 	fi

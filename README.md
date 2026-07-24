@@ -28,7 +28,7 @@ uv tool uninstall yjcli
 uv tool install yjcli
 cd /path/to/your-repo
 yjcli init --all
-yjcli add service -p backend -n api
+yjcli service add -p backend -n api
 # edit AGENTS.md, then:
 yjcli sync agents
 
@@ -38,7 +38,7 @@ make backend NAME=api        # start one service
 
 ## Platforms
 
-Use with `-p` / `--platform` (repeatable):
+Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 
 `backend` · `backend-service` · `frontend` · `mobile-app` · `pc-app` · `cli` · `browser-extension`
 
@@ -51,19 +51,13 @@ Use with `-p` / `--platform` (repeatable):
 
 ## Run (`make`)
 
-Platform targets are discovered from `*/scripts/run.sh` (after `add platform`). No Makefile edits when adding services.
+Platform targets are discovered from `*/scripts/run.sh` (after `init` / `platform add`).
 
 ```bash
 make <platform>                 # all services under that platform (concurrent)
 make <platform> NAME=<service>  # one service
 make help
-
-# Windows:
-make.bat <platform>
-make.bat <platform> NAME=<service>
 ```
-
-Examples: `make backend`, `make backend NAME=api`.
 
 ## Sync
 
@@ -79,30 +73,33 @@ Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand.
 
 ## Options
 
-- `--path <dir>` — target repo root (default: current directory). Works on `init`, `add`, `sync`.
-- `--force` / `-f` — overwrite existing root/agent files without prompting (`init`, `add`).
+- `--type` / `-t` — platform type (`backend`, `frontend`, …) on `init` / `platform add`.
+- `--platform` / `-p` — existing platform root on `service add`.
+- `--name` / `-n` — service/app name on `service add`.
+- `--path <dir>` — target repo root (default: current directory).
+- `--force` / `-f` — overwrite existing root/agent files without prompting (`init` only).
 
 ## Notes
 
-- `add service` needs the platform root first (`init` or `add platform`).
-- Non-interactive use requires flags (`-p` / `-n` / `--all`, etc.); omit them only in a TTY prompt.
+- `platform add` only creates platform roots (no services, no skills/rules/Makefile — use `service add` / `sync`).
+- `service add` needs the platform root first (`init` or `platform add`).
+- Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed.
 - `doctor` checks the **installed package** assets, not your target repo.
-- Services are discovered by directory; `add service` does not edit `run.sh` / `Makefile`.
 
 ## Commands
 
 ```bash
 yjcli init
 yjcli init --all
-yjcli init -p backend -p frontend
+yjcli init -t backend -t frontend
 yjcli init --force
 
-yjcli add platform
-yjcli add platform --all
-yjcli add platform -p cli
+yjcli platform add
+yjcli platform add --all
+yjcli platform add -t cli
 
-yjcli add service
-yjcli add service -p backend -n api
+yjcli service add
+yjcli service add -p backend -n api
 
 yjcli sync agents
 yjcli sync skills

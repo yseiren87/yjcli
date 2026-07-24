@@ -152,7 +152,7 @@ run_all() {
   done < <(list_services)
 
   if [ "${#services[@]}" -eq 0 ]; then
-    echo "no services under $PLATFORM_DIR (run: yjcli add service)"
+    echo "no services under $PLATFORM_DIR (run: yjcli service add)"
     exit 1
   fi
 

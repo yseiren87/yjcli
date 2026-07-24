@@ -7,7 +7,7 @@ if /I "%~1"=="help" goto help
 set "PLATFORM=%~1"
 if not exist "%PLATFORM%\scripts\run.bat" (
   echo Unknown target: %PLATFORM%
-  echo Expected: %PLATFORM%\scripts\run.bat ^(yjcli add platform^)
+  echo Expected: %PLATFORM%\scripts\run.bat ^(yjcli platform add^)
   exit /b 1
 )
 
@@ -41,7 +41,7 @@ for /d %%D in (*) do (
     set "FOUND=1"
   )
 )
-if not defined FOUND echo   ^(none — run: yjcli add platform^)
+if not defined FOUND echo   ^(none — run: yjcli platform add^)
 echo.
 echo Example: make.bat backend
 echo          make.bat backend NAME=api

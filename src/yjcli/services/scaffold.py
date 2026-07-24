@@ -1,4 +1,4 @@
-"""Platform / service scaffold operations (port of .agent/setup.sh)."""
+"""Platform / service scaffold operations."""
 
 from __future__ import annotations
 
@@ -106,11 +106,6 @@ def _copy_platform_extras(platform: str, name: str, dest: Path) -> None:
         copy_file(file, target, replace=replace, force=True)
 
 
-def _copy_platform_service_files(platform: str, name: str, dest: Path) -> None:
-    _copy_env_templates(platform, name, dest)
-    _copy_platform_extras(platform, name, dest)
-
-
 def create_service(root: Path, platform: str, name: str) -> None:
     if not _SERVICE_NAME_RE.match(name):
         abort("invalid name: use letters, numbers, _ or -")
@@ -122,7 +117,8 @@ def create_service(root: Path, platform: str, name: str) -> None:
         abort(f"already exists: {base}")
 
     base.mkdir(parents=True, exist_ok=True)
-    _copy_platform_service_files(platform, name, base)
+    _copy_env_templates(platform, name, base)
+    _copy_platform_extras(platform, name, base)
 
     if platform in {"backend", "backend-service"}:
         for sub in ("apps", "services", "domains", "modules"):
@@ -187,11 +183,17 @@ def bootstrap(
     force: bool = False,
     mode: str = "init",
 ) -> None:
-    """Wire agent assets, root templates, and create selected platforms."""
-    typer.echo("== agent wiring ==")
-    wiring.ensure_agent_wiring(root, force=force)
-    typer.echo("== root templates ==")
-    wiring.ensure_root_from_templates(root, force=force)
+    """Create platforms; init also installs agent wiring + root templates.
+
+    `platform add` only creates missing platform roots — never creates services
+    and does not overwrite skills/rules/Makefile (use `yjcli sync`).
+    """
+    if mode == "init":
+        typer.echo("== agent wiring ==")
+        wiring.ensure_agent_wiring(root, force=force)
+        typer.echo("== root templates ==")
+        wiring.ensure_root_from_templates(root, force=force)
+
     typer.echo("== platforms ==")
     selected = _resolve_platforms(
         root,
@@ -204,7 +206,7 @@ def bootstrap(
     for platform in selected:
         create_platform(root, platform)
     if mode == "init":
-        typer.echo("done. Next: yjcli add service")
+        typer.echo("done. Next: yjcli service add -p <platform> -n <name>")
     else:
         typer.echo("done.")
 
@@ -220,7 +222,7 @@ def add_service_flow(
         if platform not in PLATFORMS:
             abort(f"unknown platform: {platform}")
         if platform not in existing:
-            abort(f"platform does not exist yet: {platform} (run: yjcli add platform)")
+            abort(f"platform does not exist yet: {platform} (run: yjcli platform add)")
         chosen = platform
     else:
         chosen = select_existing_platform(existing)
@@ -229,7 +231,7 @@ def add_service_flow(
         from yjcli.modules.fsutil import is_interactive
 
         if not is_interactive():
-            abort("non-interactive stdin; pass --name")
+            abort("non-interactive stdin; pass service name argument")
         name = typer.prompt("Service/app name").strip()
     if not name:
         abort("name required")

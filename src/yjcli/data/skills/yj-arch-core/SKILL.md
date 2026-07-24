@@ -42,7 +42,8 @@ browser-extension/    # yj-browser-extension
 - Do not invent new platform roots or put app code at repo root.
 - Do not add per-service `scripts/` or edit root Makefile for each new service/platform.
   Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
-  Platforms are discovered via `*/scripts/run.sh`; services via sibling dirs (no script edits on `add service`).
+  Platforms via `*/scripts/run.sh`; services via `yjcli service add` (sibling dirs; no Makefile edits).
+
 
 ## Environment (guardrails only)
 

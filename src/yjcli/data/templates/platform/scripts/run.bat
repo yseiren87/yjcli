@@ -73,7 +73,7 @@ for /d %%D in (*) do (
   )
 )
 if not defined ANY (
-  echo no services under %PLATFORM_DIR% ^(run: yjcli add service^)
+  echo no services under %PLATFORM_DIR% ^(run: yjcli service add^)
   exit /b 1
 )
 echo All services started in separate windows.
