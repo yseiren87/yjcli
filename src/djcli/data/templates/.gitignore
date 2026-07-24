@@ -1,0 +1,196 @@
+# =============================================================================
+# Canonical gitignore (copied to repo root by `djcli init`)
+# Platforms: backend, backend-service, frontend, mobile-app, pc-app, cli,
+#            browser-extension (+ native hosts)
+# =============================================================================
+
+# ----- OS -----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ----- Editors / IDE -----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+.history/
+
+# ----- Environment (commit .env.examples only) -----
+.env
+.env.*
+!.env.examples
+
+# ----- Logs / debug -----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.seed
+
+# ----- Dependencies -----
+node_modules/
+jspm_packages/
+bower_components/
+.pnpm-store/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Python
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# ----- Build / output -----
+dist/
+build/
+out/
+output/
+target/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.app
+*.jar
+*.war
+*.class
+
+# Go
+bin/
+*.test
+*.out
+coverage.out
+vendor/
+
+# Java / Kotlin / Gradle / Maven
+.gradle/
+*.class
+hs_err_pid*
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+**/doc/api/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Pods/
+**/android/.gradle/
+**/android/local.properties
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
+*.iml
+
+# Electron / desktop packaging
+*.asar
+release/
+releases/
+*.dmg
+*.AppImage
+*.snap
+*.nupkg
+
+# Vite / frontend caches
+.vite/
+.turbo/
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.next/
+.nuxt/
+.svelte-kit/
+
+# ----- Test / coverage -----
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+playwright-report/
+.mocha/
+
+# ----- Local runtime / data -----
+.data/
+data/
+tmp/
+temp/
+*.tmp
+*.temp
+.run.pid
+**/.run.pid
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ----- Secrets / keys (never commit) -----
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+credentials.json
+service-account*.json
+secrets/
+.secrets/
+
+# ----- Protobuf generated (keep sources; ignore accidental local dumps) -----
+# Prefer committing language dists under backend/proto/dist/{lang}/ when intentional.
+# Uncomment if generated stubs must stay local-only:
+# backend/proto/dist/
+
+# ----- Misc -----
+*.bak
+*.orig
+*.rej
+.terraform/
+*.tfstate
+*.tfstate.*
+.direnv/
+.envrc.local

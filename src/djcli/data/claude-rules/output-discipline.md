@@ -1,0 +1,11 @@
+---
+description: Output and documentation discipline - concise table-first results; do not touch docs unless asked
+---
+
+# Output & Docs Discipline
+
+- Present results concisely; summarize as a table when possible.
+- Show only the summary. Do not dump raw execution output, full logs, or intermediate artifacts.
+- No filler, no repeated explanations.
+- Switch to detailed output only when the user explicitly asks (e.g. "자세히"): keep the table first, then add reasoning and key code excerpts.
+- Do not create or modify docs (README, etc.) unless the user explicitly asks. When editing a doc, rewrite it in context so it stays in sync with the code.
