@@ -32,13 +32,14 @@ One `{app_name}` = one desktop service.
 ### main (`entry`, `flow`, `domain?`, `infra`)
 
 ```text
-entry  = main/index.ts          # lifecycle, window, ipc registration
+entry  = main/index.ts          # lifecycle, window, ipc registration only
 flow   = main/services/{feature}.ts
-domain = main/domains/{domain}/ # only if main owns real fs/db persistence
+domain = main/domains/{domain}/ # optional — owned concepts (fs/db and/or shared policy)
 infra  = main/modules/{module}.ts
 ```
 
-- ipc handlers thin → call flow.
+- ipc handlers thin → call flow. No feature DTO/policy dump in `main/index` or ipc registration files.
+- `domains/` only when main owns a concept; repository optional (rules-only OK). Omit folder if none.
 - Do not expose Node/fs directly to renderer.
 
 ### preload (`infra` bridge)
@@ -60,10 +61,12 @@ Same container/presentational split as frontend. No `renderer/src/domains/`.
 ## Import direction
 
 ```text
-main entry -> main flow -> main domain -> main infra
+main entry -> main flow -> main domain? -> main infra
 renderer view -> renderer store -> renderer api -> preload bridge
 renderer must not import Node/Electron/fs
 ```
+
+Missing main domain ≠ put logic in entry; keep orchestration in `main/services`.
 
 ## Contracts
 

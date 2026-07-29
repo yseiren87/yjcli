@@ -3,7 +3,8 @@ name: yj-backend-msa
 description: >-
   Backend MSA architecture with mandatory gRPC/protobuf. Use only when creating
   or editing code under backend/. Language-agnostic (Go/Python/Java/etc.).
-  Covers backend/{service}, backend/proto, and proto/dist/{lang}. Do not use for
+  Covers backend/{service}, backend/proto, and proto/dist/{lang}. Supports owner,
+  policy, and edge/gateway services (domains optional). Do not use for
   backend-service/, frontend/, mobile-app/, pc-app/, cli/, or browser-extension/.
 ---
 
@@ -27,13 +28,23 @@ backend/
   {service_name}/
     apps/                  # entry
     services/              # flow
-    domains/               # domain
+    domains/               # domain (optional — owned concepts only)
     modules/               # infra
 ```
 
 - One `{service_name}` = one deployable microservice.
 - Do not over-split domains into tiny services. Split by cohesive business capability.
 - gRPC + protobuf are **mandatory**. External API surface is proto, not ad-hoc JSON structs copied across services.
+
+## Service stereotypes (same folders, different fill)
+
+| Kind | `domains/` | Typical contents |
+|------|------------|------------------|
+| **Owner** | yes | model ± repository ± rules for concepts this service stores/decides |
+| **Policy** | yes (rules-focused) | shared authz/quota/aggregation policy; often **no** repository |
+| **Edge / BFF / gateway** | usually **omit** | `services/{feature}` + `modules` clients; add rules-only domain only if policy is shared across many features |
+
+Omit empty `domains/` trees. Do not invent fake repositories to “have a domain”.
 
 ## proto
 
@@ -45,36 +56,37 @@ backend/
 ## Roles inside `{service_name}`
 
 ```text
-entry  = apps/{app_name}/main.{ext}
+entry  = apps/{app_name}/main.{ext}   # wiring / registration only
 flow   = services/{feature}/dto.{ext} + service.{ext}
-domain = domains/{domain}/model.{ext} (+ repository/rules/errors/types)
+domain = domains/{domain}/…           # optional slots; see below
 infra  = modules/{module}.{ext}
 ```
 
 ### entry
 
 - Init, gRPC server registration, dependency wiring only.
-- No business logic. No direct domain calls (always through flow).
+- No business logic. No feature DTOs, policy, or utils dump under `apps/`.
+- No direct domain calls (always through flow).
 
 ### flow
 
 - Feature/workflow composition. DTOs for this service's use of contracts.
 - Reuse services across RPCs; do not create a service per RPC automatically.
 - Do not import other services' source trees; call them over gRPC using generated clients.
+- Edge/gateway: put aggregation and feature-local mapping here — not in `apps/`.
 
 ### domain
 
-File responsibilities:
+Create only for **owned concepts** (this service is the authority). File slots are optional:
 
 - `model.{ext}`: internal domain model, entity, schema, or data shape.
-- `repository.{ext}`: persistence and retrieval using the domain model.
-- `rules.{ext}`: domain-specific decision rules and pure validations (optional).
-- `errors.{ext}`: domain-specific errors or exceptions (optional).
-- `types.{ext}`: enums, value types, and domain-only type definitions (optional).
+- `repository.{ext}`: persistence/retrieval — only if this process stores the concept.
+- `rules.{ext}`: domain-specific decisions and pure validations.
+- `errors.{ext}` / `types.{ext}`: domain errors and value types.
 
 Rules:
 
-- Persistence + rules for concepts this service owns.
+- Valid: data+rules · data only · rules only. Repository is **not** required.
 - No gRPC/transport types in domain.
 - Domains must not import apps or services.
 - No domain→domain imports; compose in flow.
@@ -104,6 +116,17 @@ services/{relation_feature}/
 - It must not import the related domains directly.
 - Existence checks, policy checks, and cross-domain composition belong in the service (flow).
 
+### Edge / gateway placement
+
+```text
+apps/server/           # main + register only
+services/{feature}/    # feature dto + orchestration
+domains/{policy}/      # optional rules-only shared policy
+modules/clients/       # downstream gRPC client factories
+```
+
+Forbidden in edge services: stuffing DTO/utils/policy into `apps/server/*` because “there is no domain”.
+
 ### infra
 
 - config, db, logging, gRPC client factories, auth adapters, low-level helpers.
@@ -119,7 +142,9 @@ entry -> infra
 flow  -> infra (including generated gRPC clients)
 ```
 
-Forbidden: handler→domain, domain→flow, cross-service source imports, new layers above flow.
+When `domains/` is omitted: `entry -> flow -> infra` (and `entry -> infra`).
+
+Forbidden: handler→domain, domain→flow, cross-service source imports, new layers above flow, feature logic in entry.
 
 ## Editing scope
 

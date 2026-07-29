@@ -108,3 +108,20 @@ yjcli sync make
 yjcli sync all
 yjcli doctor
 ```
+
+<!-- BENCH:START -->
+
+## Research: token & exploration
+
+Not measured yet.
+
+From the workspace root (sibling of this package), with `CURSOR_API_KEY` in `tools/.env`:
+
+```bash
+make bench                 # Cursor SDK: prepare → trials → report → this section
+```
+
+See `bench/README.md`.
+
+<!-- BENCH:END -->
+

@@ -39,13 +39,16 @@ view  = screens (container) + presentational views/widgets
 infra = shared clients/formatters/utils
 ```
 
-**No `lib/domain/` by default.** Exception: offline DB/engine-heavy client logic.
+**No `lib/domain/` by default.** Feature rules live in providers (flow).  
+Exception: heavy **client-owned** offline DB/engine concepts only.
+
+Missing domain ≠ put feature logic in `main.dart` / router registration.
 
 ## Rules
 
 - Provider/store calls api; widgets do not call network directly.
 - Container screen watches providers and passes plain props to presentational widgets.
-- Routes declared at entry.
+- Routes declared at entry (thin); feature work stays in providers/api.
 - Prefer symlink/consume `backend/proto/dist/dart` for MSA contracts when present. Do not copy `.proto` into the app.
 
 ## Import direction

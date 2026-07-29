@@ -4,7 +4,8 @@ description: >-
   Single deployable backend service architecture (non-MSA). Use when editing
   backend-service/** or browser-extension/native_*/**. Language-agnostic.
   Optional server-templating/SSR is an add-on chapter, not a separate platform.
-  Do not use for backend/ (MSA), frontend/, mobile-app/, pc-app/, cli/, or
+  Domains are optional owned concepts (not persistence-only). Do not use for
+  backend/ (MSA), frontend/, mobile-app/, pc-app/, cli/, or
   browser-extension UI/background (non-native_*) paths.
 ---
 
@@ -20,7 +21,7 @@ backend-service/
   {service_name}/
     apps/               # entry
     services/           # flow
-    domains/            # domain (if this process owns persistence)
+    domains/            # domain (optional — owned concepts only)
     modules/            # infra
     views/              # optional — only if SSR/templating enabled
 ```
@@ -31,28 +32,31 @@ backend-service/
 
 ## Default (API / worker / native host)
 
-Roles: `entry`, `flow`, `domain` (if persistence), `infra`. No `view`.
+Roles: `entry`, `flow`, `domain?`, `infra`. No `view`.
 
 ```text
-entry  = apps/{app_name}/main.{ext}
+entry  = apps/{app_name}/main.{ext}     # wiring only
 flow   = services/{feature}/dto.{ext} + service.{ext}
-domain = domains/{domain}/model.{ext} (+ repository/rules/errors/types)
+domain = domains/{domain}/…             # optional slots
 infra  = modules/{module}.{ext}
 ```
 
-Same import rules as core: entry→flow→domain→infra. Handlers stay thin.
+Same import rules as core: entry→flow→domain→infra (skip domain hop when omitted). Handlers stay thin — no DTO/policy/utils dump in `apps/`.
 
-### domain (when persistence exists)
+### domain (owned concept)
 
-File responsibilities:
+Create `domains/` only when this process owns a concept (authority). Persistence is optional.
+
+File slots (use only what exists):
 
 - `model.{ext}`: internal domain model, entity, schema, or data shape.
-- `repository.{ext}`: persistence and retrieval using the domain model.
-- `rules.{ext}`: domain-specific decision rules and pure validations (optional).
-- `errors.{ext}` / `types.{ext}`: domain errors and value types (optional).
+- `repository.{ext}`: persistence/retrieval — only if stored here.
+- `rules.{ext}`: domain-specific decisions and pure validations.
+- `errors.{ext}` / `types.{ext}`: domain errors and value types.
 
 Rules:
 
+- Valid: data+rules · data only · rules only.
 - No HTTP/transport/template types in domain.
 - Domains must not import apps or services.
 - No domain→domain imports; compose in flow.
@@ -62,9 +66,13 @@ Rules:
 
 Same rule as MSA: when two first-class domains have a managed relationship, add `domains/{relation_domain}/` for relationship mechanics only; compose related domains in a service. The relation domain must not import the related domains directly.
 
-### Remote-only process
+### Remote-only / proxy / thin native host
 
-If the process has **no** local persistence (proxy/native host that only calls remote APIs): skip `domains/`; keep clients in `modules`, rules in `services`.
+If the process owns **no** local concept (only calls remote APIs / extension messaging):
+
+- Omit `domains/`.
+- Clients in `modules`; feature orchestration + feature-local rules in `services`.
+- If a **shared** policy grows across features, prefer a small rules-only domain over stuffing `apps/`.
 
 ## Optional: server templating (SSR/MPA)
 

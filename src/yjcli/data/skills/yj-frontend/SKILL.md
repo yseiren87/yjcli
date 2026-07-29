@@ -40,8 +40,10 @@ view  = pages + feature components (+ generated ui primitives)
 infra = lib/*, hooks/*
 ```
 
-**No `src/domains/` by default.** Model = API types; rules = store/container.  
-Exception: heavy client-only persistence/engine logic only.
+**No `src/domains/` by default.** Model = API types; feature rules live in store/container (flow).  
+Exception: heavy **client-owned** offline DB/engine concepts only (then optional domain slots per core).
+
+Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature work under stores/api.
 
 ## Rules
 
@@ -49,7 +51,7 @@ Exception: heavy client-only persistence/engine logic only.
 - `npm start` / local mode must mean local-dev — do not silently point bare start at development/production deploy envs.
 - Store calls `api`; pages/components do not call network directly.
 - Container route wires store + router; presentational page takes props only.
-- Routes declared at entry — do not scatter route tables.
+- Routes declared at entry — do not scatter route tables; entry stays registration-thin.
 - Generated UI primitives: do not hand-edit or duplicate.
 - Consume backend contracts via generated client or `backend/proto/dist/{lang}` — never copy `.proto` into frontend.
 

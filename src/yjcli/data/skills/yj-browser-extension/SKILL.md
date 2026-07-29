@@ -38,12 +38,13 @@ popup/options = view
 lib        = infra
 ```
 
-No `domain` in the extension itself. Durable state → `chrome.storage` or a companion `native_*` / remote backend.
+No `domain` folder in the extension UI/background by default. Durable state → `chrome.storage` or a companion `native_*` / remote backend.  
+Feature rules and orchestration live in background flow — not in listeners/`apps`-style entry dumps.
 
 ### background
 
-- Listeners register and route to `services/{feature}`.
-- Orchestrate downloads, DNR, fetch, native messaging from flow — not from raw listeners with business logic.
+- Listeners register and route to `services/{feature}` (or equivalent flow modules).
+- Orchestrate downloads, DNR, fetch, native messaging from flow — not from raw listeners with business logic or DTO piles.
 - MV3 background is a **non-persistent service worker**: do not rely on module-level globals surviving restarts. Persist durable state in `chrome.storage` (or native host / remote backend).
 
 ### content
