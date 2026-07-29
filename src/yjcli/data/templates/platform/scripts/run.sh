@@ -78,11 +78,18 @@ run_one() {
     return 1
   fi
 
-  # Load KEY=VALUE from .env.local-dev (ignore comments/blank lines)
+  # Load KEY=VALUE from .env.local-dev (ignore comments/blank lines).
+  # macOS ships Bash 3.2: `source <(…)` (process substitution) does not apply
+  # assignments into the current shell — PORT/HOST stay empty. Use a temp file.
+  local env_tmp
+  env_tmp="$(mktemp "${TMPDIR:-/tmp}/yjcli-env.XXXXXX")" || return 1
+  grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" >"$env_tmp" || true
   set -a
   # shellcheck disable=SC1090
-  source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
+  # shellcheck disable=SC1091
+  . "$env_tmp"
   set +a
+  rm -f "$env_tmp"
 
   echo "[$NAME] env: $ENV_FILE"
   if [ -n "${PORT:-}" ]; then
