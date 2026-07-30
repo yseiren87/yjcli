@@ -26,7 +26,7 @@ _HELP_CONTEXT = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(
     name="yjcli",
-    help="Scaffold YJ platforms/services and Cursor/Claude agent wiring.",
+    help="Scaffold YJ platforms/services and Cursor/Claude/Codex agent wiring.",
     no_args_is_help=True,
     context_settings=_HELP_CONTEXT,
 )

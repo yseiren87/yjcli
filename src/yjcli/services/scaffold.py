@@ -186,7 +186,7 @@ def bootstrap(
     """Create platforms; init also installs agent wiring + root templates.
 
     `platform add` only creates missing platform roots — never creates services
-    and does not overwrite skills/rules/Makefile (use `yjcli sync`).
+    and does not overwrite skills/Makefile (use `yjcli sync`).
     """
     if mode == "init":
         typer.echo("== agent wiring ==")

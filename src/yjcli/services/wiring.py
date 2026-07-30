@@ -1,4 +1,4 @@
-"""Copy packaged Cursor/Claude skills & rules into a target repo."""
+"""Copy packaged Cursor/Claude/Codex skills into a target repo."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from yjcli.services import sync as sync_svc
 
 
 def ensure_agent_wiring(root: Path, *, force: bool = False) -> None:
-    """Install AGENTS docs, skills, rules, and Claude settings; mirror CLAUDE.md."""
+    """Install AGENTS docs, skills, and Claude settings; mirror CLAUDE.md."""
     templates = paths.templates_dir()
     agents_src = templates / "AGENTS.md"
     settings_src = templates / "settings.json"
@@ -27,7 +27,6 @@ def ensure_agent_wiring(root: Path, *, force: bool = False) -> None:
         sync_svc.sync_agents(root)
 
     sync_svc.sync_skills(root, force=force)
-    sync_svc.sync_rules(root, force=force)
     copy_file(settings_src, root / ".claude" / "settings.json", force=force)
 
 

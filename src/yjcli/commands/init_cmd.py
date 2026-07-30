@@ -16,7 +16,10 @@ def init_cmd(
         None,
         "--type",
         "-t",
-        help="Platform type to create (repeatable). Interactive if omitted.",
+        help=(
+            "Platform type to create (repeatable). "
+            f"One of: {', '.join(PLATFORMS)}. Interactive if omitted."
+        ),
     ),
     all_platforms: bool = typer.Option(
         False,

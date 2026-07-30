@@ -1,4 +1,4 @@
-"""Resolve packaged data directories (templates, skills, rules)."""
+"""Resolve packaged data directories (templates, skills)."""
 
 from __future__ import annotations
 
@@ -16,11 +16,3 @@ def templates_dir() -> Path:
 
 def skills_dir() -> Path:
     return data_root() / "skills"
-
-
-def cursor_rules_dir() -> Path:
-    return data_root() / "cursor-rules"
-
-
-def claude_rules_dir() -> Path:
-    return data_root() / "claude-rules"

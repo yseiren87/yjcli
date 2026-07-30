@@ -1,8 +1,11 @@
 # yjcli
 
-CLI that scaffolds YJ platform folders, services, and Cursor/Claude agent wiring.
+CLI that scaffolds YJ platform folders, services, and AI agent wiring
+(Cursor, Claude Code, Codex).
 
-Templates, skills, rules, and root make files ship inside the package and are **copied** into the target repo.
+Templates, skills, and root make files ship inside the package and are **copied**
+into the target repo. Standing agent guidance lives in **`AGENTS.md`** only
+(`CLAUDE.md` is a mirror).
 
 ## Install
 
@@ -45,9 +48,13 @@ Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 ## What `init` creates
 
 - `AGENTS.md`, `CLAUDE.md` (mirror of `AGENTS.md`)
-- `.cursor/` / `.claude/` skills, rules, and Claude `settings.json`
+- Skills under `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` (Codex)
+- Claude `settings.json`
 - Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
 - Selected platform roots (`*/scripts/run.sh` / `run.bat`)
+
+Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
+`.cursor/rules` / `.claude/rules`.
 
 ## Run (`make`)
 
@@ -64,12 +71,12 @@ make help
 | Command | When |
 |---------|------|
 | `yjcli sync agents` | After editing `AGENTS.md` — refreshes `CLAUDE.md` |
-| `yjcli sync skills` | Refresh packaged skills only |
-| `yjcli sync rules` | Refresh packaged rules only |
+| `yjcli sync skills` | Refresh packaged skills (Cursor / Claude / Codex) |
 | `yjcli sync make` | Overwrite root `Makefile` / `make.bat` and each installed platform’s `scripts/run.sh` · `run.bat` |
-| `yjcli sync all` | After upgrading `yjcli` — agents + skills + rules + make (+ platform run scripts) |
+| `yjcli sync all` | Soft upgrade — mirror CLAUDE + skills + make (**keeps** your `AGENTS.md`) |
+| `yjcli sync migrate -y` | **Hard** upgrade — package template overwrites `AGENTS.md`, wipes skills dirs, drops legacy rules/`.agent`, refreshes settings/TOOLS/gitignore/make |
 
-Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand.
+Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand. Use `migrate` when upgrading from older yjcli layouts (rules era).
 
 ## Options
 
@@ -81,10 +88,12 @@ Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand.
 
 ## Notes
 
-- `platform add` only creates platform roots (no services, no skills/rules/Makefile — use `service add` / `sync`).
+- `platform add` only creates platform roots (no services, no skills/Makefile — use `service add` / `sync`).
 - `service add` needs the platform root first (`init` or `platform add`).
 - Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed.
 - `doctor` checks the **installed package** assets, not your target repo.
+- `sync skills` / `sync all` remove legacy `.cursor/rules` and `.claude/rules` if present.
+- `sync migrate` also overwrites `AGENTS.md` from the package (destructive); requires `--yes` when non-interactive.
 
 ## Commands
 
@@ -103,9 +112,9 @@ yjcli service add -p backend -n api
 
 yjcli sync agents
 yjcli sync skills
-yjcli sync rules
 yjcli sync make
 yjcli sync all
+yjcli sync migrate --yes
 yjcli doctor
 ```
 
@@ -124,4 +133,3 @@ make bench                 # Cursor SDK: prepare → trials → report → this 
 See `bench/README.md`.
 
 <!-- BENCH:END -->
-

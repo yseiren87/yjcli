@@ -1,14 +1,14 @@
 [project]
 name = "yjcli"
-version = "0.0.9"
-description = "Scaffold platforms, services, and AI agent wiring (Cursor/Claude) for YJ architecture repos."
+version = "0.1.0"
+description = "Scaffold platforms, services, and AI agent wiring (Cursor/Claude/Codex) for YJ architecture repos."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [
   { name = "yseiren87" },
 ]
-keywords = ["cli", "scaffold", "cursor", "claude", "agent"]
+keywords = ["cli", "scaffold", "cursor", "claude", "codex", "agent"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

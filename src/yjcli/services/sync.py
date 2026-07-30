@@ -1,15 +1,22 @@
-"""Sync agent docs / skills / rules / make scripts into a target repo."""
+"""Sync agent docs / skills / make scripts into a target repo."""
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import typer
 
 from yjcli.modules import paths
 from yjcli.modules.constants import PLATFORMS
-from yjcli.modules.fsutil import copy_file, copy_tree, ensure_real_dir
+from yjcli.modules.fsutil import copy_file, copy_tree, ensure_real_dir, is_interactive
 from yjcli.modules.prompt import abort
+
+_SKILL_DEST_RELS = (
+    Path(".cursor") / "skills",
+    Path(".claude") / "skills",
+    Path(".agents") / "skills",
+)
 
 
 def sync_agents(root: Path) -> None:
@@ -22,12 +29,38 @@ def sync_agents(root: Path) -> None:
     typer.echo("synced: AGENTS.md -> CLAUDE.md")
 
 
+def _remove_legacy_rules_dirs(root: Path) -> None:
+    """Drop obsolete Cursor/Claude rules dirs (guidance lives in AGENTS.md)."""
+    for rel in (Path(".cursor") / "rules", Path(".claude") / "rules"):
+        target = root / rel
+        if target.is_dir():
+            shutil.rmtree(target)
+            typer.echo(f"removed legacy: {rel}/")
+
+
+def _remove_path(root: Path, rel: Path, *, label: str) -> None:
+    target = root / rel
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+        typer.echo(f"removed {label}: {rel}")
+    elif target.is_dir():
+        shutil.rmtree(target)
+        typer.echo(f"removed {label}: {rel}/")
+
+
+def _wipe_skill_dirs(root: Path) -> None:
+    """Delete skill destinations so stale skill folders cannot linger."""
+    for rel in _SKILL_DEST_RELS:
+        _remove_path(root, rel, label="skills dir")
+
+
 def sync_skills(root: Path, *, force: bool = True) -> None:
-    """Copy packaged skills into .cursor/skills and .claude/skills."""
-    cursor_skills = root / ".cursor" / "skills"
-    claude_skills = root / ".claude" / "skills"
-    ensure_real_dir(cursor_skills)
-    ensure_real_dir(claude_skills)
+    """Copy packaged skills into .cursor, .claude, and .agents (Codex) skills."""
+    _remove_legacy_rules_dirs(root)
+
+    destinations = tuple(root / rel for rel in _SKILL_DEST_RELS)
+    for dest in destinations:
+        ensure_real_dir(dest)
 
     skills_root = paths.skills_dir()
     if not skills_root.is_dir():
@@ -35,31 +68,11 @@ def sync_skills(root: Path, *, force: bool = True) -> None:
 
     for skill_dir in sorted(p for p in skills_root.iterdir() if p.is_dir()):
         name = skill_dir.name
-        copy_tree(skill_dir, cursor_skills / name, force=force)
-        copy_tree(skill_dir, claude_skills / name, force=force)
-    typer.echo("synced: packaged skills -> .cursor/skills, .claude/skills")
-
-
-def sync_rules(root: Path, *, force: bool = True) -> None:
-    """Copy packaged rules into .cursor/rules and .claude/rules."""
-    cursor_rules = root / ".cursor" / "rules"
-    claude_rules = root / ".claude" / "rules"
-    ensure_real_dir(cursor_rules)
-    ensure_real_dir(claude_rules)
-
-    cursor_src = paths.cursor_rules_dir()
-    claude_src = paths.claude_rules_dir()
-    if not cursor_src.is_dir() and not claude_src.is_dir():
-        abort("missing packaged cursor/claude rules")
-
-    for rule_file in sorted(cursor_src.glob("*")):
-        if rule_file.is_file():
-            copy_file(rule_file, cursor_rules / rule_file.name, force=force)
-
-    for rule_file in sorted(claude_src.glob("*")):
-        if rule_file.is_file():
-            copy_file(rule_file, claude_rules / rule_file.name, force=force)
-    typer.echo("synced: packaged rules -> .cursor/rules, .claude/rules")
+        for dest in destinations:
+            copy_tree(skill_dir, dest / name, force=force)
+    typer.echo(
+        "synced: packaged skills -> .cursor/skills, .claude/skills, .agents/skills"
+    )
 
 
 def sync_make(root: Path, *, force: bool = True) -> None:
@@ -95,8 +108,60 @@ def sync_make(root: Path, *, force: bool = True) -> None:
 
 
 def sync_all(root: Path, *, force: bool = True) -> None:
-    """Sync AGENTS.md mirror, skills, rules, make files, and platform run scripts."""
+    """Sync AGENTS.md mirror, skills, make files, and platform run scripts."""
     sync_agents(root)
     sync_skills(root, force=force)
-    sync_rules(root, force=force)
     sync_make(root, force=force)
+
+
+def sync_migrate(root: Path, *, yes: bool = False) -> None:
+    """Force-replace agent wiring + root templates from the package (destructive).
+
+    Unlike `sync all`, this overwrites `AGENTS.md` from the package template,
+    wipes skill directories (drops stale skills), removes legacy rules / `.agent`,
+    and refreshes Claude settings + TOOLS.md / .gitignore / make scripts.
+    """
+    if not yes:
+        if not is_interactive():
+            abort("migrate requires --yes in non-interactive mode")
+        answer = typer.prompt(
+            "migrate overwrites AGENTS.md, skills, Makefile, TOOLS.md, "
+            ".gitignore, .claude/settings.json; removes legacy rules/.agent. "
+            "Continue? [y/N]",
+            default="N",
+        )
+        if answer.strip().lower() not in {"y", "yes"}:
+            abort("migrate cancelled")
+
+    typer.echo("== migrate: strip legacy ==")
+    _remove_legacy_rules_dirs(root)
+    _remove_path(root, Path(".agent"), label="legacy")
+    _wipe_skill_dirs(root)
+
+    templates = paths.templates_dir()
+    agents_src = templates / "AGENTS.md"
+    settings_src = templates / "settings.json"
+    if not agents_src.is_file():
+        abort(f"missing packaged template: {agents_src}")
+    if not settings_src.is_file():
+        abort(f"missing packaged template: {settings_src}")
+
+    typer.echo("== migrate: AGENTS.md + CLAUDE.md ==")
+    copy_file(agents_src, root / "AGENTS.md", force=True)
+    sync_agents(root)
+
+    typer.echo("== migrate: skills ==")
+    sync_skills(root, force=True)
+
+    typer.echo("== migrate: settings + root templates ==")
+    copy_file(settings_src, root / ".claude" / "settings.json", force=True)
+    for name in (".gitignore", "TOOLS.md"):
+        src = templates / name
+        if not src.is_file():
+            typer.echo(f"warn: missing template: {src}", err=True)
+            continue
+        copy_file(src, root / name, force=True)
+
+    typer.echo("== migrate: make ==")
+    sync_make(root, force=True)
+    typer.echo("migrate done.")

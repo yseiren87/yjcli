@@ -23,7 +23,10 @@ def platform_add(
         None,
         "--type",
         "-t",
-        help="Platform type to add (repeatable). Interactive if omitted.",
+        help=(
+            "Platform type to add (repeatable). "
+            f"One of: {', '.join(PLATFORMS)}. Interactive if omitted."
+        ),
     ),
     all_platforms: bool = typer.Option(
         False,
@@ -39,7 +42,7 @@ def platform_add(
         resolve_path=True,
     ),
 ) -> None:
-    """Add platform roots only (no services, no skills/rules overwrite — use sync)."""
+    """Add platform roots only (no services, no skills/Makefile overwrite — use sync)."""
     if all_platforms and type_:
         typer.echo("error: use either --all or --type, not both", err=True)
         raise typer.Exit(code=1)
@@ -50,6 +53,7 @@ def platform_add(
                 f"error: unknown platform type(s): {', '.join(unknown)}",
                 err=True,
             )
+            typer.echo(f"known: {', '.join(PLATFORMS)}", err=True)
             raise typer.Exit(code=1)
 
     scaffold.bootstrap(

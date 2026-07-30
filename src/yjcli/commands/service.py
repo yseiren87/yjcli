@@ -23,7 +23,10 @@ def service_add(
         None,
         "--platform",
         "-p",
-        help="Existing platform type/root. Interactive if omitted.",
+        help=(
+            "Existing platform type/root. "
+            f"One of: {', '.join(PLATFORMS)}. Interactive if omitted."
+        ),
     ),
     name: Optional[str] = typer.Option(
         None,

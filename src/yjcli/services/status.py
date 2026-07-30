@@ -15,6 +15,4 @@ def asset_summary() -> dict[str, int]:
     return {
         "templates": count_files(paths.templates_dir),
         "skills": count_files(paths.skills_dir),
-        "cursor_rules": count_files(paths.cursor_rules_dir),
-        "claude_rules": count_files(paths.claude_rules_dir),
     }

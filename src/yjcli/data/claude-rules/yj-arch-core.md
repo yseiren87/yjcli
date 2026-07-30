@@ -1,7 +1,0 @@
----
-description: Always load yj-arch-core skill for coding work
----
-
-# Architecture skill
-
-When creating, modifying, reviewing, or refactoring code, read and follow the project skill `yj-arch-core`, then exactly one matching `yj-*` platform skill for the folder being edited.
