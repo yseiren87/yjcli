@@ -45,11 +45,6 @@ call :kill_by_pidfile
 
 cd /d "%SERVICE_DIR%"
 
-if exist "Makefile" (
-  make run %*
-  exit /b %ERRORLEVEL%
-)
-
 if exist "package.json" (
   set "EXTRA="
   if defined HOST set "EXTRA=!EXTRA! --host %HOST%"

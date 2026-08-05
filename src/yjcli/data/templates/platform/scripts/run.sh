@@ -113,12 +113,6 @@ run_one() {
 
   cd "$SERVICE_DIR"
 
-  if [ -f "Makefile" ]; then
-    export HOST="${HOST:-}"
-    export PORT="${PORT:-}"
-    start_and_track make run "$@"
-  fi
-
   if [ -f "package.json" ]; then
     export HOST="${HOST:-}"
     export PORT="${PORT:-}"
@@ -147,7 +141,7 @@ run_one() {
   fi
 
   echo "[$NAME] exists at $SERVICE_DIR"
-  echo "No run convention found yet (add Makefile target 'run' or package.json scripts)."
+  echo "No package-native run convention found yet."
   return 1
 }
 

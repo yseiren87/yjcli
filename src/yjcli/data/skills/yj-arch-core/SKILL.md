@@ -41,7 +41,9 @@ browser-extension/    # yj-browser-extension
 - `backend/proto/` is reserved (see yj-backend-msa).
 - `browser-extension/native_{name}/` → **yj-backend-service**.
 - Do not invent new platform roots or put app code at repo root.
-- Do not add per-service `scripts/` or edit root Makefile for each new service/platform.
+- Do not create a `Makefile` inside any service folder, including generic `run`,
+  `install`, or `help` targets. Do not add per-service `scripts/` or edit the root
+  Makefile for each new service/platform.
   Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
   Platforms via `*/scripts/run.sh`; services via `yjcli service add` (sibling dirs; no Makefile edits).
 

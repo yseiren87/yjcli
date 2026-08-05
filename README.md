@@ -53,6 +53,12 @@ Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 - Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
 - Selected platform roots (`*/scripts/run.sh` / `run.bat`)
 
+Each platform's `scripts/` directory is the extension point for platform-level
+automation. Add paired scripts such as `build.sh` / `build.bat` or
+`init.sh` / `init.bat` when the whole platform needs them. Keep this automation
+at the platform level; do not add per-service `scripts/` directories or
+per-service Makefiles.
+
 Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
 `.cursor/rules` / `.claude/rules`.
 
