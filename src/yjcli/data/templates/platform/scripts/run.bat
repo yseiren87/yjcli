@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+rem The service owns RUN_COMMAND; this runner does not infer a language/runtime.
 set "PLATFORM_DIR=%~dp0.."
 cd /d "%PLATFORM_DIR%"
 
@@ -31,7 +32,8 @@ if not exist "%ENV_FILE%" (
 
 rem Load KEY=VALUE from .env.local-dev
 for /f "usebackq tokens=1* delims==" %%A in (`findstr /R "^[A-Za-z_][A-Za-z0-9_]*=" "%ENV_FILE%"`) do (
-  set "%%A=%%B"
+  rem %%~B removes optional dotenv quotes while preserving the value text.
+  set "%%A=%%~B"
 )
 
 echo [%NAME%] env: %ENV_FILE%
@@ -45,16 +47,15 @@ call :kill_by_pidfile
 
 cd /d "%SERVICE_DIR%"
 
-if exist "package.json" (
-  set "EXTRA="
-  if defined HOST set "EXTRA=!EXTRA! --host %HOST%"
-  if defined PORT set "EXTRA=!EXTRA! --port %PORT%"
-  call npm start -- !EXTRA! %*
-  exit /b %ERRORLEVEL%
+if not defined RUN_COMMAND (
+  echo [%NAME%] RUN_COMMAND is unset in %ENV_FILE%
+  echo Declare the service-owned local command, for example: RUN_COMMAND=your-command --flag
+  exit /b 1
 )
 
-echo [%NAME%] exists but has no run convention yet.
-exit /b 1
+echo [%NAME%] command: !RUN_COMMAND!
+call !RUN_COMMAND! %*
+exit /b %ERRORLEVEL%
 
 :run_all
 set "ANY="

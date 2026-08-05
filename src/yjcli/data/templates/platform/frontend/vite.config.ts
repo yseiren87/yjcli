@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 // Env files (yj-arch-core): .env.local-dev | .env.development | .env.production
 // Loaded via Vite --mode (no plain .env).
-// Platform run.sh always uses .env.local-dev and may pass --host/--port.
+// Platform run.* always exports values from .env.local-dev before RUN_COMMAND.
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");

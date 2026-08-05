@@ -35,6 +35,14 @@ Desktop.ini
 .env.*
 !.env.examples
 
+# Keep yjcli's packaged env source templates when this file lives under data/templates.
+# These paths do not match generated service env files in a target repository.
+!platform/envs/
+!platform/envs/*/
+!platform/envs/*/.env.local-dev
+!platform/envs/*/.env.development
+!platform/envs/*/.env.production
+
 # ----- Logs / debug -----
 logs/
 *.log

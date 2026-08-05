@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+rem Extend this root file with repository-owned platform-action commands as needed,
+rem for example: make.bat backend-deploy NAME=api. yjcli does not define them.
 
 if /I "%~1"=="" goto help
 if /I "%~1"=="help" goto help

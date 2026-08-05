@@ -2,6 +2,9 @@
 # Usage:
 #   make <platform>                 # all services under that platform (concurrent)
 #   make <platform> NAME=<service>  # one service
+# Extend this root file for repository-owned work when needed. A useful pattern
+# is <platform>-<action> with the same optional NAME selector, for example
+# `make backend-deploy [NAME=api]`. yjcli does not define those actions.
 
 PLATFORMS := $(patsubst %/scripts/run.sh,%,$(wildcard */scripts/run.sh))
 

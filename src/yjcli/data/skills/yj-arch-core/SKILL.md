@@ -42,10 +42,13 @@ browser-extension/    # yj-browser-extension
 - `browser-extension/native_{name}/` → **yj-backend-service**.
 - Do not invent new platform roots or put app code at repo root.
 - Do not create a `Makefile` inside any service folder, including generic `run`,
-  `install`, or `help` targets. Do not add per-service `scripts/` or edit the root
-  Makefile for each new service/platform.
+  `install`, or `help` targets. Do not add per-service `scripts/`.
   Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
-  Platforms via `*/scripts/run.sh`; services via `yjcli service add` (sibling dirs; no Makefile edits).
+  Platforms run via `*/scripts/run.*`; services are sibling dirs created with `yjcli service add`.
+- The root `Makefile` / `make.bat` is repository-owned and may be extended. Prefer
+  `<platform>-<action> [NAME=<service>]` when an action should target all services
+  or one service (for example, `backend-deploy`). The repository owns and implements
+  actions such as init/install/build/deploy; yjcli does not generate action scripts.
 
 
 ## Environment (guardrails only)
@@ -63,6 +66,9 @@ Allowed files at each service root (no plain `.env`):
 - `HOST`/`PORT` are required for `listen`. For `worker` they are optional — add only if needed.
 - Commit `.env.examples` only; never commit the other three.
 - Local platform `run.*` uses `.env.local-dev` only — do not hardcode HOST/PORT in scripts.
+- Each service declares its repository-owned local `RUN_COMMAND` in `.env.local-dev`.
+  Platform `run.*` must execute that declaration and must not infer commands from
+  `package.json`, `pyproject.toml`, `go.mod`, or other language/runtime manifests.
 
 ## Skill routing
 

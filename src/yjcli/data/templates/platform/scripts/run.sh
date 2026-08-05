@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run service(s) under this platform.
 # Always loads {service}/.env.local-dev (never development/production).
+# The service owns RUN_COMMAND; this runner does not infer a language/runtime.
 # Usage:
 #   ./scripts/run.sh                 # all services concurrently
 #   ./scripts/run.sh <service> [args...]
@@ -111,38 +112,18 @@ run_one() {
     exit "$code"
   }
 
-  cd "$SERVICE_DIR"
-
-  if [ -f "package.json" ]; then
-    export HOST="${HOST:-}"
-    export PORT="${PORT:-}"
-    local -a extra=()
-    if [ -n "${HOST:-}" ]; then
-      extra+=(--host "$HOST")
-    fi
-    if [ -n "${PORT:-}" ]; then
-      extra+=(--port "$PORT")
-    fi
-    if npm run | grep -qE '^  start$'; then
-      if [ "${#extra[@]}" -gt 0 ]; then
-        start_and_track npm start -- "${extra[@]}" "$@"
-      else
-        start_and_track npm start -- "$@"
-      fi
-    fi
-    if npm run | grep -qE '^  dev$'; then
-      if [ "${#extra[@]}" -gt 0 ]; then
-        start_and_track npm run dev -- "${extra[@]}" "$@"
-      else
-        start_and_track npm run dev -- "$@"
-      fi
-    fi
-    start_and_track npm start -- "$@"
+  if [ -z "${RUN_COMMAND:-}" ]; then
+    echo "[$NAME] RUN_COMMAND is unset in $ENV_FILE"
+    echo "Declare the service-owned local command, for example: RUN_COMMAND=\"your-command --flag\""
+    return 1
   fi
 
-  echo "[$NAME] exists at $SERVICE_DIR"
-  echo "No package-native run convention found yet."
-  return 1
+  cd "$SERVICE_DIR"
+  echo "[$NAME] command: $RUN_COMMAND"
+  # RUN_COMMAND is trusted, repository-owned configuration. Execute it through
+  # the platform shell so one contract works for any repository-selected tool.
+  # Extra arguments supplied after the service name are appended as "$@".
+  start_and_track bash -c "$RUN_COMMAND \"\$@\"" yjcli-run "$@"
 }
 
 run_all() {

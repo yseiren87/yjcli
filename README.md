@@ -53,11 +53,12 @@ Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 - Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
 - Selected platform roots (`*/scripts/run.sh` / `run.bat`)
 
-Each platform's `scripts/` directory is the extension point for platform-level
-automation. Add paired scripts such as `build.sh` / `build.bat` or
-`init.sh` / `init.bat` when the whole platform needs them. Keep this automation
-at the platform level; do not add per-service `scripts/` directories or
-per-service Makefiles.
+The root `Makefile` / `make.bat` is the repository-owned extension point for
+project automation. Projects may add commands such as `<platform>-build` or
+`<platform>-deploy` and reuse optional `NAME=<service>` selection. Defining and
+implementing init/install/build/deploy behavior is the project's responsibility;
+yjcli does not generate action scripts. Do not add per-service `scripts/`
+directories or per-service Makefiles.
 
 Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
 `.cursor/rules` / `.claude/rules`.
@@ -65,6 +66,9 @@ Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
 ## Run (`make`)
 
 Platform targets are discovered from `*/scripts/run.sh` (after `init` / `platform add`).
+Each service declares its local command as `RUN_COMMAND` in `.env.local-dev`.
+The platform runner executes that repository-owned declaration instead of
+inferring npm, uv, Go, or another language/runtime from project manifests.
 
 ```bash
 make <platform>                 # all services under that platform (concurrent)
