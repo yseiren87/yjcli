@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Env files (yj-arch-core): .env.local-dev | .env.development | .env.production
+// Env files (yj-arch-core): required .env.local-dev plus optional .env.<environment> files.
 // Loaded via Vite --mode (no plain .env).
 // Platform run.* always exports values from .env.local-dev before RUN_COMMAND.
 

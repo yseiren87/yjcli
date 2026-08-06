@@ -67,6 +67,10 @@ Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
 
 Platform targets are discovered from `*/scripts/run.sh` (after `init` / `platform add`).
 Each service declares its local command as `RUN_COMMAND` in `.env.local-dev`.
+New services include `.env.local-dev`, `.env.development`, `.env.production`, and
+`.env.examples`. Only `.env.local-dev` and `.env.examples` are required;
+development/production may be removed and other `.env.<environment>` files may
+be added. Commit `.env.examples` only.
 The platform runner executes that repository-owned declaration instead of
 inferring npm, uv, Go, or another language/runtime from project manifests.
 

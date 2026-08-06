@@ -53,18 +53,29 @@ browser-extension/    # yj-browser-extension
 
 ## Environment (guardrails only)
 
-Allowed files at each service root (no plain `.env`):
+Required files at each service root (no plain `.env`):
 
-`.env.local-dev` · `.env.development` · `.env.production` · `.env.examples`
+`.env.local-dev` · `.env.examples`
 
-- Do not invent alternate names (including Vite `.env` / `.env.local`) unless a thin loader maps to this set.
+- New services also start with `.env.development` and `.env.production`, but these
+  are optional. Remove them when unused or add environments such as `.env.staging`,
+  `.env.test`, or `.env.qa` as the project requires. Environment files must follow
+  the `.env.<environment>` naming pattern; do not use plain `.env` or Vite's
+  `.env.local` convention unless a thin loader maps it to this structure.
 - Env field sets come from `templates/platform/envs/<kind>/` via platform mapping (`listen` / `worker` / `app`).
   - `listen`: `backend` (PORT 8080), `frontend` (PORT 5173)
-  - `worker`: `backend-service`, `browser-extension/native_*` (HOST/PORT optional comments)
+  - `worker`: `backend-service`, `browser-extension/native_*` (HOST/PORT optional)
   - `app`: `cli`, `mobile-app`, `pc-app`, `browser-extension` (NAME/VERSION only)
-  Do not invent fields/filenames outside those templates.
+  Do not invent fields outside those templates; environment filenames remain
+  extensible through the `.env.<environment>` pattern above.
 - `HOST`/`PORT` are required for `listen`. For `worker` they are optional — add only if needed.
-- Commit `.env.examples` only; never commit the other three.
+- `.env.examples` is the committed field contract. Format every entry as one
+  comment line followed by one empty `FIELD=` line, with one blank line between
+  entries.
+- Every other `.env.<environment>` file lists populated `FIELD=value` lines
+  consecutively, without field-description comments or separator blank lines.
+- Commit `.env.examples` only; never commit `.env.local-dev` or any other
+  environment value file.
 - Local platform `run.*` uses `.env.local-dev` only — do not hardcode HOST/PORT in scripts.
 - Each service declares its repository-owned local `RUN_COMMAND` in `.env.local-dev`.
   Platform `run.*` must execute that declaration and must not infer commands from

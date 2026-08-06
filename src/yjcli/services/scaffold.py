@@ -19,7 +19,9 @@ from yjcli.modules.prompt import abort, select_existing_platform, select_platfor
 from yjcli.services import wiring
 
 _SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
-_ENV_FILE_NAMES = (
+# New services start with these files. Projects may remove development/production
+# or add other .env.<environment> files; examples and local-dev remain required.
+_DEFAULT_ENV_FILE_NAMES = (
     ".env.local-dev",
     ".env.development",
     ".env.production",
@@ -77,7 +79,7 @@ def _copy_env_templates(platform: str, name: str, dest: Path) -> None:
         abort(f"missing env template dir: {src}")
 
     replace = {"__NAME__": name, **extra}
-    for filename in _ENV_FILE_NAMES:
+    for filename in _DEFAULT_ENV_FILE_NAMES:
         file = src / filename
         if not file.is_file():
             abort(f"missing env template: {file}")
