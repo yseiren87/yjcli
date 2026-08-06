@@ -104,10 +104,11 @@ Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand. Use `migrate` when upgra
 
 - `platform add` only creates platform roots (no services, no skills/Makefile — use `service add` / `sync`).
 - `service add` needs the platform root first (`init` or `platform add`).
-- Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed.
+- Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed, and pass
+  `--yes` for every `sync` command.
 - `doctor` checks the **installed package** assets, not your target repo.
 - `sync skills` / `sync all` remove legacy `.cursor/rules` and `.claude/rules` if present.
-- `sync migrate` also overwrites `AGENTS.md` from the package (destructive); requires `--yes` when non-interactive.
+- `sync migrate` also overwrites `AGENTS.md` from the package (destructive).
 
 ## Commands
 

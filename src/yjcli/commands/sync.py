@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from yjcli.modules.prompt import abort
 from yjcli.services import sync as sync_svc
 
 app = typer.Typer(
@@ -18,6 +19,26 @@ app = typer.Typer(
 )
 
 
+def _confirm_sync(*, yes: bool, target: str) -> bool:
+    if yes:
+        return True
+    while True:
+        try:
+            answer = typer.prompt(
+                f"{target} files will be overwritten. Continue? [y/n]",
+                default=None,
+                show_default=False,
+            ).strip().lower()
+        except (EOFError, typer.Abort):
+            abort("non-interactive stdin; pass --yes")
+        if answer == "y":
+            return True
+        if answer == "n":
+            typer.echo("sync cancelled.")
+            return False
+        typer.echo("Enter y or n.", err=True)
+
+
 @app.command("agents")
 def sync_agents(
     path: Path = typer.Option(
@@ -28,8 +49,11 @@ def sync_agents(
         dir_okay=True,
         resolve_path=True,
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
     """Overwrite CLAUDE.md from AGENTS.md (edit AGENTS.md only)."""
+    if not _confirm_sync(yes=yes, target="Agent mirror"):
+        return
     sync_svc.sync_agents(path)
 
 
@@ -43,8 +67,11 @@ def sync_skills(
         dir_okay=True,
         resolve_path=True,
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
     """Overwrite .cursor/.claude/.agents skills from the yjcli package."""
+    if not _confirm_sync(yes=yes, target="Skill"):
+        return
     sync_svc.sync_skills(path, force=True)
 
 
@@ -58,8 +85,11 @@ def sync_make(
         dir_okay=True,
         resolve_path=True,
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
     """Overwrite root Makefile/make.bat and installed platforms' run.sh/run.bat."""
+    if not _confirm_sync(yes=yes, target="Make and run script"):
+        return
     sync_svc.sync_make(path, force=True)
 
 
@@ -73,11 +103,14 @@ def sync_all(
         dir_okay=True,
         resolve_path=True,
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
     """Sync AGENTS.md → CLAUDE.md, skills, make files, and platform run scripts.
 
     Does not overwrite AGENTS.md from the package (use `sync migrate` for that).
     """
+    if not _confirm_sync(yes=yes, target="Agent mirror, skill, make, and run script"):
+        return
     sync_svc.sync_all(path, force=True)
 
 
@@ -95,7 +128,7 @@ def sync_migrate(
         False,
         "--yes",
         "-y",
-        help="Skip confirmation (required when stdin is not a TTY).",
+        help="Skip confirmation.",
     ),
 ) -> None:
     """Force-replace agent wiring from the package (destructive upgrade).
@@ -104,4 +137,6 @@ def sync_migrate(
     Makefile/make.bat, platform run scripts, TOOLS.md, .gitignore,
     .claude/settings.json. Removes legacy .cursor/rules, .claude/rules, .agent.
     """
-    sync_svc.sync_migrate(path, yes=yes)
+    if not _confirm_sync(yes=yes, target="Agent wiring and root template"):
+        return
+    sync_svc.sync_migrate(path)

@@ -9,7 +9,7 @@ import typer
 
 from yjcli.modules import paths
 from yjcli.modules.constants import PLATFORMS
-from yjcli.modules.fsutil import copy_file, copy_tree, ensure_real_dir, is_interactive
+from yjcli.modules.fsutil import copy_file, copy_tree, ensure_real_dir
 from yjcli.modules.prompt import abort
 
 _SKILL_DEST_RELS = (
@@ -114,25 +114,13 @@ def sync_all(root: Path, *, force: bool = True) -> None:
     sync_make(root, force=force)
 
 
-def sync_migrate(root: Path, *, yes: bool = False) -> None:
+def sync_migrate(root: Path) -> None:
     """Force-replace agent wiring + root templates from the package (destructive).
 
     Unlike `sync all`, this overwrites `AGENTS.md` from the package template,
     wipes skill directories (drops stale skills), removes legacy rules / `.agent`,
     and refreshes Claude settings + TOOLS.md / .gitignore / make scripts.
     """
-    if not yes:
-        if not is_interactive():
-            abort("migrate requires --yes in non-interactive mode")
-        answer = typer.prompt(
-            "migrate overwrites AGENTS.md, skills, Makefile, TOOLS.md, "
-            ".gitignore, .claude/settings.json; removes legacy rules/.agent. "
-            "Continue? [y/N]",
-            default="N",
-        )
-        if answer.strip().lower() not in {"y", "yes"}:
-            abort("migrate cancelled")
-
     typer.echo("== migrate: strip legacy ==")
     _remove_legacy_rules_dirs(root)
     _remove_path(root, Path(".agent"), label="legacy")
