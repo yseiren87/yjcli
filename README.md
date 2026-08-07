@@ -43,7 +43,7 @@ make backend NAME=api        # start one service
 
 Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 
-`backend` · `backend-service` · `frontend` · `mobile-app` · `pc-app` · `cli` · `browser-extension`
+`backend` · `backend-service` · `frontend` · `mobile-app` · `pc-app` · `cli` · `browser-extension` · `scheduler`
 
 ## What `init` creates
 
@@ -121,9 +121,11 @@ yjcli init --force
 yjcli platform add
 yjcli platform add --all
 yjcli platform add -t cli
+yjcli platform add -t scheduler
 
 yjcli service add
 yjcli service add -p backend -n api
+yjcli service add -p scheduler -n operations
 
 yjcli sync agents
 yjcli sync skills

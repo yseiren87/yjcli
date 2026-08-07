@@ -30,6 +30,7 @@ mobile-app/           # yj-mobile-app
 pc-app/               # yj-pc-app
 cli/                  # yj-cli
 browser-extension/    # yj-browser-extension
+scheduler/            # yj-scheduler
 ```
 
 ```text
@@ -64,7 +65,7 @@ Required files at each service root (no plain `.env`):
   `.env.local` convention unless a thin loader maps it to this structure.
 - Env field sets come from `templates/platform/envs/<kind>/` via platform mapping (`listen` / `worker` / `app`).
   - `listen`: `backend` (PORT 8080), `frontend` (PORT 5173)
-  - `worker`: `backend-service`, `browser-extension/native_*` (HOST/PORT optional)
+  - `worker`: `backend-service`, `browser-extension/native_*`, `scheduler` (HOST/PORT optional)
   - `app`: `cli`, `mobile-app`, `pc-app`, `browser-extension` (NAME/VERSION only)
   Do not invent fields outside those templates; environment filenames remain
   extensible through the `.env.<environment>` pattern above.
@@ -93,6 +94,7 @@ Required files at each service root (no plain `.env`):
 | `cli/**` | `yj-cli` |
 | `browser-extension/native_*/**` | `yj-backend-service` |
 | `browser-extension/**` (other) | `yj-browser-extension` |
+| `scheduler/**` | `yj-scheduler` |
 
 Never load all platform skills. Never apply a platform skill outside its folder.
 

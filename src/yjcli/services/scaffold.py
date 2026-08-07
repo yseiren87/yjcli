@@ -122,7 +122,7 @@ def create_service(root: Path, platform: str, name: str) -> None:
     _copy_env_templates(platform, name, base)
     _copy_platform_extras(platform, name, base)
 
-    if platform in {"backend", "backend-service"}:
+    if platform in {"backend", "backend-service", "scheduler"}:
         for sub in ("apps", "services", "domains", "modules"):
             (base / sub).mkdir(exist_ok=True)
     elif platform == "frontend":

@@ -29,6 +29,7 @@ When creating, modifying, reviewing, or refactoring code:
 | `cli/**` | `yj-cli` |
 | `browser-extension/native_*/**` | `yj-backend-service` |
 | `browser-extension/**` (other) | `yj-browser-extension` |
+| `scheduler/**` | `yj-scheduler` |
 
 Never load all platform skills. Never apply a platform skill outside its folder.
 

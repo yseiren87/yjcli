@@ -10,6 +10,7 @@ PLATFORMS: tuple[str, ...] = (
     "pc-app",
     "cli",
     "browser-extension",
+    "scheduler",
 )
 
 RESERVED_SERVICE_NAMES: frozenset[str] = frozenset({"scripts", "proto"})
@@ -26,4 +27,5 @@ PLATFORM_ENV: dict[str, tuple[str, dict[str, str]]] = {
     "mobile-app": ("app", {}),
     "pc-app": ("app", {}),
     "browser-extension": ("app", {}),
+    "scheduler": ("worker", {}),
 }
