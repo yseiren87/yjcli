@@ -76,7 +76,7 @@ def sync_skills(root: Path, *, force: bool = True) -> None:
 
 
 def sync_make(root: Path, *, force: bool = True) -> None:
-    """Overwrite root Makefile/make.bat and each installed platform's run scripts."""
+    """Refresh managed make/run files and install missing deploy templates."""
     templates = paths.templates_dir()
     for name in ("Makefile", "make.bat"):
         src = templates / name
@@ -85,10 +85,23 @@ def sync_make(root: Path, *, force: bool = True) -> None:
         copy_file(src, root / name, force=force)
     typer.echo("synced: packaged Makefile, make.bat -> repo root")
 
-    run_sh = templates / "platform" / "scripts" / "run.sh"
-    run_bat = templates / "platform" / "scripts" / "run.bat"
-    if not run_sh.is_file() or not run_bat.is_file():
-        abort(f"missing packaged platform scripts under {run_sh.parent}")
+    scripts_src = templates / "platform" / "scripts"
+    managed_names = ("run.sh", "run.bat")
+    deploy_names = (
+        "deploy-common.sh",
+        "deploy-common.bat",
+        "deploy-development.sh",
+        "deploy-development.bat",
+        "deploy-production.sh",
+        "deploy-production.bat",
+    )
+    missing = [
+        name
+        for name in (*managed_names, *deploy_names)
+        if not (scripts_src / name).is_file()
+    ]
+    if missing:
+        abort(f"missing packaged platform scripts under {scripts_src}: {', '.join(missing)}")
 
     installed = [p for p in PLATFORMS if (root / p).is_dir()]
     if not installed:
@@ -98,13 +111,21 @@ def sync_make(root: Path, *, force: bool = True) -> None:
     for platform in installed:
         scripts_dir = root / platform / "scripts"
         ensure_real_dir(scripts_dir)
-        dest_sh = scripts_dir / "run.sh"
-        dest_bat = scripts_dir / "run.bat"
-        copy_file(run_sh, dest_sh, force=force)
-        copy_file(run_bat, dest_bat, force=force)
-        if dest_sh.is_file():
-            dest_sh.chmod(dest_sh.stat().st_mode | 0o111)
-        typer.echo(f"synced: {platform}/scripts/run.sh, run.bat")
+        for name in managed_names:
+            copy_file(scripts_src / name, scripts_dir / name, force=force)
+        for name in deploy_names:
+            copy_file(scripts_src / name, scripts_dir / name, skip_existing=True)
+        executable_names = (
+            "run.sh",
+            "deploy-common.sh",
+            "deploy-development.sh",
+            "deploy-production.sh",
+        )
+        for name in executable_names:
+            target = scripts_dir / name
+            if target.is_file():
+                target.chmod(target.stat().st_mode | 0o111)
+        typer.echo(f"synced: {platform}/scripts (run refreshed; deploy preserved)")
 
 
 def sync_all(root: Path, *, force: bool = True) -> None:

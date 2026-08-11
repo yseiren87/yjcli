@@ -51,14 +51,17 @@ Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 - Skills under `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` (Codex)
 - Claude `settings.json`
 - Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
-- Selected platform roots (`*/scripts/run.sh` / `run.bat`)
+- `Diff.md` — user-maintained architecture difference and manual restoration notes
+- Selected platform roots with `scripts/run.*` and development/production deploy templates
 
-The root `Makefile` / `make.bat` is the repository-owned extension point for
-project automation. Projects may add commands such as `<platform>-build` or
-`<platform>-deploy` and reuse optional `NAME=<service>` selection. Defining and
-implementing init/install/build/deploy behavior is the project's responsibility;
-yjcli does not generate action scripts. Do not add per-service `scripts/`
-directories or per-service Makefiles.
+The root `Makefile` / `make.bat` wires platform run and deploy entry points. Deploy
+templates print the exact file to implement and fail until the project supplies
+its build/package and upload logic. They remain platform-level; do not add
+per-service `scripts/` directories or per-service Makefiles.
+
+`Diff.md` is created only when missing, including with `init --force`. yjcli never
+reads, updates, overwrites, or uses it for automatic restoration during sync or
+migration.
 
 Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
 `.cursor/rules` / `.claude/rules`.
@@ -77,6 +80,8 @@ inferring npm, uv, Go, or another language/runtime from project manifests.
 ```bash
 make <platform>                 # all services under that platform (concurrent)
 make <platform> NAME=<service>  # one service
+make <platform>-deploy-development [NAME=<service>]
+make <platform>-deploy-production [NAME=<service>]
 make help
 ```
 
@@ -86,7 +91,7 @@ make help
 |---------|------|
 | `yjcli sync agents` | After editing `AGENTS.md` — refreshes `CLAUDE.md` |
 | `yjcli sync skills` | Refresh packaged skills (Cursor / Claude / Codex) |
-| `yjcli sync make` | Overwrite root `Makefile` / `make.bat` and each installed platform’s `scripts/run.sh` · `run.bat` |
+| `yjcli sync make` | Overwrite root make/run files; install missing deploy scripts while preserving implemented ones |
 | `yjcli sync all` | Soft upgrade — mirror CLAUDE + skills + make (**keeps** your `AGENTS.md`) |
 | `yjcli sync migrate -y` | **Hard** upgrade — package template overwrites `AGENTS.md`, wipes skills dirs, drops legacy rules/`.agent`, refreshes settings/TOOLS/gitignore/make |
 
@@ -102,7 +107,7 @@ Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand. Use `migrate` when upgra
 
 ## Notes
 
-- `platform add` only creates platform roots (no services, no skills/Makefile — use `service add` / `sync`).
+- `platform add` creates platform roots and their run/deploy scripts (no services, skills, or root Makefile).
 - `service add` needs the platform root first (`init` or `platform add`).
 - Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed, and pass
   `--yes` for every `sync` command.

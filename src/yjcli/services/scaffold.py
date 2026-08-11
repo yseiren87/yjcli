@@ -28,6 +28,17 @@ _DEFAULT_ENV_FILE_NAMES = (
     ".env.examples",
 )
 
+_PLATFORM_SCRIPT_NAMES = (
+    "run.sh",
+    "run.bat",
+    "deploy-common.sh",
+    "deploy-common.bat",
+    "deploy-development.sh",
+    "deploy-development.bat",
+    "deploy-production.sh",
+    "deploy-production.bat",
+)
+
 
 def existing_platforms(root: Path) -> list[str]:
     return [p for p in PLATFORMS if (root / p).is_dir()]
@@ -43,14 +54,21 @@ def create_platform(root: Path, platform: str) -> None:
     scripts_dir.mkdir(parents=True, exist_ok=True)
 
     templates = paths.templates_dir()
-    run_sh = templates / "platform" / "scripts" / "run.sh"
-    run_bat = templates / "platform" / "scripts" / "run.bat"
-    if not run_sh.is_file() or not run_bat.is_file():
-        abort(f"missing platform scripts under {templates / 'platform' / 'scripts'}")
+    script_templates = templates / "platform" / "scripts"
+    missing = [
+        name
+        for name in _PLATFORM_SCRIPT_NAMES
+        if not (script_templates / name).is_file()
+    ]
+    if missing:
+        abort(f"missing platform scripts under {script_templates}: {', '.join(missing)}")
 
-    shutil.copy2(run_sh, scripts_dir / "run.sh")
-    shutil.copy2(run_bat, scripts_dir / "run.bat")
-    (scripts_dir / "run.sh").chmod((scripts_dir / "run.sh").stat().st_mode | 0o111)
+    for name in _PLATFORM_SCRIPT_NAMES:
+        source = script_templates / name
+        target = scripts_dir / name
+        shutil.copy2(source, target)
+        if name.endswith(".sh"):
+            target.chmod(target.stat().st_mode | 0o111)
 
     if platform == "backend":
         proto = dest / "proto"
@@ -242,3 +260,5 @@ def add_service_flow(
     typer.echo(f"run all: make {chosen}")
     typer.echo(f"run one: make {chosen} NAME={name}")
     typer.echo(f"  or: {chosen}/scripts/run.sh [{name}]")
+    typer.echo(f"deploy development: make {chosen}-deploy-development NAME={name}")
+    typer.echo(f"deploy production: make {chosen}-deploy-production NAME={name}")
