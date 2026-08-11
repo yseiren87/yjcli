@@ -58,8 +58,12 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 | `AGENTS.md` | Agent / contributor guide (this file) — source of truth |
 | `CLAUDE.md` | Mirror of `AGENTS.md` — do not edit; refresh with `yjcli sync agents` |
 | `TOOLS.md` | Release-tools feature spec (version / deploy / git) |
-| `Makefile` | Extensible root entry — `make <platform>` (all services) or `NAME=<service>` (one); repository may add `<platform>-<action>` targets |
+| `Diff.md` | User-maintained reference for project differences from yjcli defaults; yjcli never updates or restores from it |
+| `Makefile` | Root entry — run via `make <platform>`; deploy via `<platform>-deploy-development\|production`, optionally with `NAME=<service>` |
 | `make.bat` | Extensible Windows counterpart of root Makefile |
+| `<platform>/scripts/deploy-common.*` | Repository-owned shared build/package implementation |
+| `<platform>/scripts/deploy-development.*` | Repository-owned development upload/deploy implementation |
+| `<platform>/scripts/deploy-production.*` | Repository-owned production upload/deploy implementation |
 | `.gitignore` | Canonical ignore rules |
 | `.cursor/skills/` | Cursor skills (copied from package) |
 | `.claude/skills/` | Claude skills (copied from package) |
@@ -94,6 +98,10 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 
 # build
 <command>
+
+# deploy (generated stubs fail until implemented)
+make <platform>-deploy-development [NAME=<service>]
+make <platform>-deploy-production [NAME=<service>]
 ```
 
 ---
@@ -130,10 +138,13 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 ### Do
 
 - `<item>`
+- Record meaningful architecture differences from yjcli defaults in `Diff.md` when useful for manual restoration.
 
 ### Don't
 
 - `<item>`
+- Do not expect `Diff.md` to drive sync, migration, comparison, backup, or automatic restoration.
+- Do not put secrets in `Diff.md`.
 
 ---
 
@@ -158,5 +169,6 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 | Kind | Location |
 |------|----------|
 | Release tools spec | `TOOLS.md` |
+| Architecture differences | `Diff.md` |
 | Packaged skills (source) | installed via `yjcli` → `.cursor` / `.claude` / `.agents` skills |
 | `<kind>` | `<path>` |

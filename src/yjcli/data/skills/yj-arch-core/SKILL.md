@@ -35,7 +35,7 @@ scheduler/            # yj-scheduler
 
 ```text
 {platform}/
-  scripts/            # platform-level only
+  scripts/            # platform run + deploy entry points
   {service_name}/     # one deployable / one app
 ```
 
@@ -46,10 +46,17 @@ scheduler/            # yj-scheduler
   `install`, or `help` targets. Do not add per-service `scripts/`.
   Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
   Platforms run via `*/scripts/run.*`; services are sibling dirs created with `yjcli service add`.
-- The root `Makefile` / `make.bat` is repository-owned and may be extended. Prefer
-  `<platform>-<action> [NAME=<service>]` when an action should target all services
-  or one service (for example, `backend-deploy`). The repository owns and implements
-  actions such as init/install/build/deploy; yjcli does not generate action scripts.
+- The root `Makefile` / `make.bat` wires platform run and deploy commands. Use
+  `<platform>-deploy-development|production [NAME=<service>]` for deploys.
+  `deploy-common.*` owns shared build/package preparation; the environment-specific
+  deploy script calls it and then owns upload/rollout. Generated deploy scripts fail
+  with an implementation prompt until the repository replaces their guarded stubs.
+- Deploy scripts are repository-owned after creation. `yjcli sync make` installs
+  missing deploy scripts but preserves existing ones.
+- `Diff.md` is an optional, user-maintained reference for meaningful architecture
+  differences from yjcli defaults and their manual restoration notes. Update it
+  when that record would help, but never treat it as an automated sync, migration,
+  backup, comparison, or restoration mechanism. Never place secrets in it.
 
 
 ## Environment (guardrails only)

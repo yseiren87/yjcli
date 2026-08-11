@@ -31,7 +31,7 @@ def ensure_agent_wiring(root: Path, *, force: bool = False) -> None:
 
 
 def ensure_root_from_templates(root: Path, *, force: bool = False) -> None:
-    """Copy root Makefile / TOOLS.md / .gitignore / make.bat from packaged templates."""
+    """Copy managed root templates and create the user-owned Diff.md once."""
     templates = paths.templates_dir()
     for name in (".gitignore", "Makefile", "make.bat", "TOOLS.md"):
         src = templates / name
@@ -39,3 +39,9 @@ def ensure_root_from_templates(root: Path, *, force: bool = False) -> None:
             typer.echo(f"warn: missing template: {src}", err=True)
             continue
         copy_file(src, root / name, force=force)
+
+    diff_src = templates / "Diff.md"
+    if not diff_src.is_file():
+        typer.echo(f"warn: missing template: {diff_src}", err=True)
+    else:
+        copy_file(diff_src, root / "Diff.md", skip_existing=True)
