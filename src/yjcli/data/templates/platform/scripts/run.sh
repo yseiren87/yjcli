@@ -101,13 +101,24 @@ run_one() {
   kill_by_pidfile "$PID_FILE"
 
   start_and_track() {
+    # Give the repository command its own process group. Killing only the
+    # wrapper PID leaves descendants (for example npm -> node) running.
+    set -m
     "$@" &
     local pid=$!
+    set +m
     echo "$pid" >"$PID_FILE"
     echo "[$NAME] started pid $pid (tracked in $PID_FILE)"
-    trap 'kill "$pid" 2>/dev/null || true; rm -f "$PID_FILE"; exit 130' INT TERM
-    wait "$pid"
-    local code=$?
+    stop_command() {
+      trap - INT TERM
+      kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$PID_FILE"
+      exit 130
+    }
+    trap stop_command INT TERM
+    local code=0
+    wait "$pid" || code=$?
     rm -f "$PID_FILE"
     exit "$code"
   }
@@ -146,10 +157,15 @@ run_all() {
   done
 
   cleanup() {
+    trap - INT TERM
     local p
     for p in "${pids[@]}"; do
-      kill "$p" 2>/dev/null || true
+      kill -TERM "$p" 2>/dev/null || true
     done
+    for p in "${pids[@]}"; do
+      wait "$p" 2>/dev/null || true
+    done
+    exit 130
   }
   trap cleanup INT TERM
 

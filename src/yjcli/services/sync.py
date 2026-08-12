@@ -86,7 +86,7 @@ def sync_make(root: Path, *, force: bool = True) -> None:
     typer.echo("synced: packaged Makefile, make.bat -> repo root")
 
     scripts_src = templates / "platform" / "scripts"
-    managed_names = ("run.sh", "run.bat")
+    managed_names = ("run.sh", "run.bat", "run-all.ps1")
     deploy_names = (
         "deploy-common.sh",
         "deploy-common.bat",

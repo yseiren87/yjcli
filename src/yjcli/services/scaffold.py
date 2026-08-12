@@ -31,6 +31,7 @@ _DEFAULT_ENV_FILE_NAMES = (
 _PLATFORM_SCRIPT_NAMES = (
     "run.sh",
     "run.bat",
+    "run-all.ps1",
     "deploy-common.sh",
     "deploy-common.bat",
     "deploy-development.sh",

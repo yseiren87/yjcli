@@ -58,22 +58,8 @@ call !RUN_COMMAND! %*
 exit /b %ERRORLEVEL%
 
 :run_all
-set "ANY="
-for /d %%D in (*) do (
-  if /I not "%%~nxD"=="scripts" if /I not "%%~nxD"=="proto" (
-    if exist "%%D\.env.local-dev" (
-      echo starting %%~nxD
-      start "%%~nxD" cmd /c "cd /d "%PLATFORM_DIR%" && call scripts\run.bat %%~nxD"
-      set "ANY=1"
-    )
-  )
-)
-if not defined ANY (
-  echo no services under %PLATFORM_DIR% ^(run: yjcli service add^)
-  exit /b 1
-)
-echo All services started in separate windows.
-exit /b 0
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-all.ps1"
+exit /b %ERRORLEVEL%
 
 :kill_by_port
 set "KPORT=%~1"
