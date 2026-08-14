@@ -134,13 +134,18 @@ Missing domain does **not** mean collapse into entry. Still use flow + infra.
 Placement when unsure:
 
 1. Owned concept / shared policy across features? → domain  
-2. One feature’s IO / mapping / orchestration? → flow (`services/{feature}`)  
+2. One feature’s IO / mapping / orchestration? → the platform-defined flow
+   boundary (commonly `services/{feature}`)
 3. Clients, config, logging, technical helpers? → infra (`modules`)  
 4. Bootstrap / register only? → entry (`apps` or platform entry files)  
 5. Otherwise do not invent a new home — extend an existing flow
 
 UI clients default to **no `domain`**: model = API types; feature rules live in flow.  
 Exception only for heavy client-owned offline DB/engine concepts.
+
+UI platform skills may map flow and view to separate technical roots. Those
+roots must use the same feature boundary so one feature's flow and view remain
+easy to locate without mixing their roles.
 
 ## Import direction
 

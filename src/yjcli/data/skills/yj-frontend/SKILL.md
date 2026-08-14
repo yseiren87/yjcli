@@ -24,8 +24,10 @@ frontend/
   {app_name}/
     src/
       main.tsx, App.tsx          # entry
-      stores/, api/              # flow
-      pages/, components/        # view
+      stores/{feature}/          # flow state/orchestration
+      api/{feature}/             # flow API access/mapping
+      pages/{feature}/           # container view
+      components/{feature}/      # presentational view
       lib/, hooks/               # infra
 ```
 
@@ -35,10 +37,14 @@ One `{app_name}` = one web app. No micro-frontends unless the user requests it.
 
 ```text
 entry = src/main.tsx, src/App.tsx (routes)
-flow  = stores + api per feature
-view  = pages + feature components (+ generated ui primitives)
+flow  = stores/{feature} + api/{feature}
+view  = pages/{feature} + components/{feature} (+ generated ui primitives)
 infra = lib/*, hooks/*
 ```
+
+Flow and view use the same `{feature}` boundary under separate role roots. Do
+not place a feature store or API module beside `pages/` or `components/` as if
+it were a view.
 
 **No `src/domains/` by default.** Model = API types; feature rules live in store/container (flow).  
 Exception: heavy **client-owned** offline DB/engine concepts only (then optional domain slots per core).
@@ -49,7 +55,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 
 - Follow `yj-arch-core` env names; listen apps need `HOST`/`PORT`. No plain `.env`.
 - `npm start` / local mode must mean local-dev — do not silently point bare start at development/production deploy envs.
-- Store calls `api`; pages/components do not call network directly.
+- Store calls the same feature's `api`; pages/components do not call network directly.
 - Container route wires store + router; presentational page takes props only.
 - Routes declared at entry — do not scatter route tables; entry stays registration-thin.
 - Generated UI primitives: do not hand-edit or duplicate.
