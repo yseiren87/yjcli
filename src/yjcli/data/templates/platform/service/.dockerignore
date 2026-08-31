@@ -1,0 +1,17 @@
+# Never bake env values into the image — the docker-swarm plugin injects them
+# via --build-arg from .env.development / .env.production at build time.
+.env
+.env.*
+
+.git
+.gitignore
+*.log
+.DS_Store
+
+node_modules
+dist
+build
+
+__pycache__
+*.pyc
+.venv

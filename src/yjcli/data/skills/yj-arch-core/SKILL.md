@@ -46,13 +46,59 @@ scheduler/            # yj-scheduler
   `install`, or `help` targets. Do not add per-service `scripts/`.
   Root `make <platform>` starts all services under that platform (concurrent); `NAME=<service>` runs one.
   Platforms run via `*/scripts/run.*`; services are sibling dirs created with `yjcli service add`.
-- The root `Makefile` / `make.bat` wires platform run and deploy commands. Use
+- The root `Makefile` / `make.bat` wires platform run, build, and deploy commands. Use
+  `<platform>-build-development|production [NAME=<service>]` for builds and
   `<platform>-deploy-development|production [NAME=<service>]` for deploys.
-  `deploy-common.*` owns shared build/package preparation; the environment-specific
-  deploy script calls it and then owns upload/rollout. Generated deploy scripts fail
-  with an implementation prompt until the repository replaces their guarded stubs.
-- Deploy scripts are repository-owned after creation. `yjcli sync make` installs
-  missing deploy scripts but preserves existing ones.
+  `build-common.sh` owns shared build/package preparation; the environment-specific
+  build script (`build-development.sh` / `build-production.sh`) calls it.
+  `deploy-common.sh` owns shared deploy orchestration (calls the matching build
+  script, then runs deploy plugins); the environment-specific deploy script
+  (`deploy-development.sh` / `deploy-production.sh`) calls it first and then
+  owns upload/rollout guidance only. Generated build/deploy scripts fail with an
+  implementation prompt until the repository replaces their guarded stubs.
+- `run.*` ships as `.sh` + `.bat` + `.ps1` (local dev runs natively per platform).
+  `build-*` and `deploy-*` are `.sh` only — build/deploy tooling is not native to
+  Windows, so `make.bat` runs those targets through WSL.
+- Build/deploy scripts are repository-owned after creation. `yjcli sync make` installs
+  missing build/deploy scripts but preserves existing ones.
+- `build-common.sh` is the same file for every platform — it is not backend-specific.
+  It is a thin plugin host: it runs every `scripts/plugin-build-*.sh` file present,
+  then falls through to its own generic build guard. Each capability is its own
+  file, self-detected by folder presence at runtime, not by branching on platform
+  name — so any platform can opt in. (A deploy-side plugin would be
+  `plugin-deploy-*.sh` — the naming segment names the consumer.)
+  - `plugin-build-proto.sh` → protoc codegen guard when `<platform>/proto/` exists
+    (schema `proto/*.proto` → generated `proto/dist/{lang}`). `backend` always has
+    this (fixed gRPC MSA root); any other platform gets the same guard only if it
+    creates a `proto/` folder too — do not assume gRPC on non-backend platforms.
+    protoc is the standard; buf is not used.
+  - `plugin-build-ssr.sh` → template/asset build guard when
+    `<platform>/{service}/views/` exists, checked per service (or across all
+    services when no service is targeted). Any platform's service may opt in by
+    creating `views/` — this is not backend-service-specific either.
+  - `plugin-build-docker.sh` → docker image **build only** guard (no push, no
+    swarm/stack rollout — that is a deploy-side plugin's job, not this one),
+    per service that has a `Dockerfile` (delete it to opt that service out).
+    Builds use `{service}/.env.development` or `.env.production` matching the
+    target environment. Image version: the service's `package.json` or
+    `pyproject.toml` `version` field when present, else the `VERSION` env var.
+  None of these plugins imply each other, and none imply MSA: a backend-service
+  using gRPC is still a single deployable, not multiple services sharing a
+  proto contract. Each plugin is also runnable standalone (e.g.
+  `./plugin-build-proto.sh development`) for testing without the base build guard.
+- `yjcli service add` adds `Dockerfile` + `.dockerignore` to new services under
+  deployable platforms (`backend`, `backend-service`, `frontend`, `scheduler`)
+  — not under `cli`/`mobile-app`/`pc-app`/`browser-extension`, which are
+  local/client artifacts, not docker-swarm services. The Dockerfile is
+  language-agnostic with no `FROM` yet — `docker build` fails until replaced,
+  same guard-until-implemented contract as the other stubs.
+- `deploy-common.sh` is the deploy-side plugin host, same contract as
+  `build-common.sh`: after calling the matching build script, it runs every
+  `scripts/plugin-deploy-*.sh` file present. None ship by default — a project
+  adds one (e.g. an image-push + `docker stack deploy` plugin, `kubectl apply`,
+  nginx/reverse-proxy) when it needs it. `deploy-development.sh` /
+  `deploy-production.sh` call `deploy-common.sh` and then own upload/rollout
+  guidance only.
 - `Diff.md` is an optional, user-maintained reference for meaningful architecture
   differences from yjcli defaults and their manual restoration notes. Update it
   when that record would help, but never treat it as an automated sync, migration,

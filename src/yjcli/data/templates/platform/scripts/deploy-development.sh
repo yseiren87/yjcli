@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Development deployment entry point. Keep shared preparation in deploy-common.sh.
+# Development deployment entry point. Shared orchestration (build, then every
+# plugin-deploy-*.sh) lives in deploy-common.sh; this file owns upload/rollout
+# guidance only.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

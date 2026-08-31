@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Shared build/package preparation for development and production deploys.
-# Replace the implementation guard below with repository-specific commands.
+# Shared deploy orchestration for development and production deploys: runs the
+# matching build script, then every scripts/plugin-deploy-*.sh present (none
+# ship by default — add one, e.g. plugin-deploy-docker-swarm.sh, to opt in).
+# The environment-specific deploy-development.sh / deploy-production.sh call
+# this first and then own upload/rollout guidance only.
 set -euo pipefail
+shopt -s nullglob
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLATFORM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENVIRONMENT="${1:-}"
 NAME="${2:-}"
+shift 2
 
 case "$ENVIRONMENT" in
   development|production) ;;
@@ -16,20 +20,9 @@ case "$ENVIRONMENT" in
     ;;
 esac
 
-if [ -n "$NAME" ] && [ ! -d "$PLATFORM_DIR/$NAME" ]; then
-  echo "unknown service: $NAME (expected $PLATFORM_DIR/$NAME)"
-  exit 1
-fi
+"$SCRIPT_DIR/build-$ENVIRONMENT.sh" "$NAME" "$@"
 
-echo "[deploy] platform: $(basename "$PLATFORM_DIR")"
-echo "[deploy] environment: $ENVIRONMENT"
-echo "[deploy] service: ${NAME:-all}"
-echo "deploy common is not implemented."
-echo "Implement build/package logic in: $SCRIPT_DIR/deploy-common.sh"
-echo "Examples: docker build, archive creation, frontend build"
-
-# Implementation examples:
-# docker build -t "example/${NAME:-platform}:$ENVIRONMENT" "$PLATFORM_DIR"
-# tar -czf "${NAME:-platform}.tar.gz" -C "$PLATFORM_DIR" "${NAME:-.}"
-# (cd "$PLATFORM_DIR/$NAME" && npm ci && npm run build)
-exit 1
+for plugin in "$SCRIPT_DIR"/plugin-deploy-*.sh; do
+  [ -x "$plugin" ] || continue
+  "$plugin" "$ENVIRONMENT" "$NAME"
+done

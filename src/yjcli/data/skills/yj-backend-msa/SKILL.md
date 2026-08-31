@@ -4,8 +4,10 @@ description: >-
   Backend MSA architecture with mandatory gRPC/protobuf. Use only when creating
   or editing code under backend/. Language-agnostic (Go/Python/Java/etc.).
   Covers backend/{service}, backend/proto, and proto/dist/{lang}. Supports owner,
-  policy, and edge/gateway services (domains optional). Do not use for
-  backend-service/, frontend/, mobile-app/, pc-app/, cli/, or browser-extension/.
+  policy, and edge/gateway services (domains optional). Optional server-templating
+  (SSR) add-on for a service that must render HTML, same as backend-service — not
+  a separate platform. Do not use for backend-service/, frontend/, mobile-app/,
+  pc-app/, cli/, or browser-extension/.
 ---
 
 # yj-backend-msa
@@ -52,6 +54,34 @@ Omit empty `domains/` trees. Do not invent fake repositories to “have a domain
 - Generated stubs go to `backend/proto/dist/{lang}/`.
 - Other platforms (e.g. `mobile-app`) may **symlink** to `backend/proto/dist/{lang}` — they must not own `.proto` copies.
 - Prefer package boundaries in proto that align with service boundaries.
+- Regeneration is wired through `backend/scripts/plugin-build-proto.sh` — a plugin
+  file every platform gets (not backend-specific), which auto-detects
+  `backend/proto/` and adds a protoc codegen guard (protoc is the standard here;
+  buf is not used). It runs automatically as part of `build-common.sh`, invoked via
+  `make backend-build-development|production`, and is also runnable standalone.
+  Implement codegen there, not as an ad-hoc one-off command.
+
+## Optional: server templating (SSR/MPA)
+
+Templating is an **option**, not something MSA forbids. Enable only when a
+service must render HTML itself (e.g. an edge/gateway serving an admin page).
+Most services stay gRPC-only — do not create `views/` speculatively.
+
+When enabled for `{service_name}`, add role `view`:
+
+```text
+view = views/{feature}/{page}.html | views/layouts/* | views/partials/*
+```
+
+Extra rules:
+
+- Handlers: parse → call flow → build template context → render. No DB in handlers.
+- flow returns plain data / view models — never HTML.
+- templates: presentation only; no DB/service/domain calls.
+- Template/asset bundling is wired the same way as proto: `plugin-build-ssr.sh`
+  auto-detects `{service_name}/views/` and adds a build guard for it. Implement
+  the bundling there, not as an ad-hoc one-off command.
+- If the service is gRPC-only, do **not** create `views/`.
 
 ## Roles inside `{service_name}`
 

@@ -3,7 +3,8 @@ name: yj-backend-service
 description: >-
   Single deployable backend service architecture (non-MSA). Use when editing
   backend-service/** or browser-extension/native_*/**. Language-agnostic.
-  Optional server-templating/SSR is an add-on chapter, not a separate platform.
+  Optional server-templating/SSR and optional gRPC/protobuf transport are both
+  add-on chapters, not separate platforms — choosing gRPC does not make this MSA.
   Domains are optional owned concepts (not persistence-only). Do not use for
   backend/ (MSA), frontend/, mobile-app/, pc-app/, cli/, or
   browser-extension UI/background (non-native_*) paths.
@@ -74,6 +75,26 @@ If the process owns **no** local concept (only calls remote APIs / extension mes
 - Clients in `modules`; feature orchestration + feature-local rules in `services`.
 - If a **shared** policy grows across features, prefer a small rules-only domain over stuffing `apps/`.
 
+## Optional: gRPC transport (protobuf)
+
+Protobuf/gRPC is an **option**, not backend-service's default, and choosing it
+does **not** turn this into MSA. Enable only when this single service's own
+external API is defined as proto. Unlike `backend`, there is no shared
+multi-service contract here, no fan-out to sibling services, and the
+cross-service "call only through generated clients" rule from `yj-backend-msa`
+does not apply — there is no sibling service to call.
+
+Keep the schema at `{platform}/proto/*.proto` (same reserved location
+`plugin-build-proto.sh` already checks). If more than one service under this
+platform needs its own independent proto contract at the same time, that is a
+signal the unit may belong in `backend/` (MSA) instead — do not invent a second
+proto location to work around the ambiguity.
+
+Codegen is wired the same way as MSA: `plugin-build-proto.sh` auto-detects
+`proto/` and adds a protoc codegen guard (protoc is the standard; buf is not
+used). It runs automatically as part of `build-common.sh` and is also runnable
+standalone. Implement codegen there, not as an ad-hoc one-off command.
+
 ## Optional: server templating (SSR/MPA)
 
 Templating is an **option**, not the folder identity. Enable only when the service must render HTML.
@@ -89,6 +110,9 @@ Extra rules:
 - Handlers: parse → call flow → build template context → render. No DB in handlers.
 - flow returns plain data / view models — never HTML.
 - templates: presentation only; no DB/service/domain calls.
+- Template/asset bundling is wired the same way as proto: `plugin-build-ssr.sh`
+  auto-detects `{service_name}/views/` and adds a build guard for it. Implement
+  the bundling there, not as an ad-hoc one-off command.
 - If the service is JSON-API only, do **not** create `views/`.
 
 Guide when adding SSR later:

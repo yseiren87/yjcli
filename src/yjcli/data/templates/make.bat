@@ -1,19 +1,34 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-rem Deploy scripts intentionally fail until their printed implementation steps are completed.
+rem Build/deploy scripts are POSIX shell (.sh) only (Docker etc. are not native to
+rem Windows); those targets run through WSL. run.* stays native Windows.
+rem Build/deploy scripts intentionally fail until their printed implementation steps
+rem are completed.
 
 if /I "%~1"=="" goto help
 if /I "%~1"=="help" goto help
 
 set "TARGET=%~1"
+set "ACTION="
+
+set "PLATFORM=%TARGET:-build-development=%"
+if /I not "%PLATFORM%"=="%TARGET%" (
+  set "ACTION=build-development"
+  goto parse_start
+)
+set "PLATFORM=%TARGET:-build-production=%"
+if /I not "%PLATFORM%"=="%TARGET%" (
+  set "ACTION=build-production"
+  goto parse_start
+)
 set "PLATFORM=%TARGET:-deploy-development=%"
 if /I not "%PLATFORM%"=="%TARGET%" (
-  set "DEPLOY_ENV=development"
+  set "ACTION=deploy-development"
   goto parse_start
 )
 set "PLATFORM=%TARGET:-deploy-production=%"
 if /I not "%PLATFORM%"=="%TARGET%" (
-  set "DEPLOY_ENV=production"
+  set "ACTION=deploy-production"
   goto parse_start
 )
 set "PLATFORM=%TARGET%"
@@ -35,8 +50,17 @@ shift
 goto parse
 
 :run_exec
-if defined DEPLOY_ENV (
-  call "%PLATFORM%\scripts\deploy-%DEPLOY_ENV%.bat" "%NAME%"
+if defined ACTION (
+  where wsl >nul 2>&1
+  if errorlevel 1 (
+    echo wsl.exe not found. Build/deploy scripts are .sh only; install WSL to run %ACTION% on Windows.
+    exit /b 1
+  )
+  if not exist "%PLATFORM%\scripts\%ACTION%.sh" (
+    echo missing: %PLATFORM%\scripts\%ACTION%.sh
+    exit /b 1
+  )
+  wsl bash "%PLATFORM%/scripts/%ACTION%.sh" "%NAME%"
   exit /b !ERRORLEVEL!
 )
 if "%NAME%"=="" (
@@ -50,8 +74,10 @@ exit /b %ERRORLEVEL%
 echo Usage:
 echo   make.bat ^<platform^>                 # all services ^(separate windows^)
 echo   make.bat ^<platform^> NAME=^<service^>  # one service
-echo   make.bat ^<platform^>-deploy-development [NAME=^<service^>]
-echo   make.bat ^<platform^>-deploy-production  [NAME=^<service^>]
+echo   make.bat ^<platform^>-build-development  [NAME=^<service^>]  ^(via WSL^)
+echo   make.bat ^<platform^>-build-production   [NAME=^<service^>]  ^(via WSL^)
+echo   make.bat ^<platform^>-deploy-development [NAME=^<service^>]  ^(via WSL^)
+echo   make.bat ^<platform^>-deploy-production  [NAME=^<service^>]  ^(via WSL^)
 echo.
 echo Available platforms (dirs with scripts\run.bat):
 set "FOUND="
@@ -65,6 +91,6 @@ if not defined FOUND echo   ^(none — run: yjcli platform add^)
 echo.
 echo Example: make.bat backend
 echo          make.bat backend NAME=api
-echo          make.bat backend-deploy-development NAME=api
+echo          make.bat backend-build-development NAME=api
 echo          make.bat backend-deploy-production NAME=api
 exit /b 0

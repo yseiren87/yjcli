@@ -31,14 +31,23 @@ _DEFAULT_ENV_FILE_NAMES = (
 _PLATFORM_SCRIPT_NAMES = (
     "run.sh",
     "run.bat",
-    "run-all.ps1",
+    "run.ps1",
+    "build-common.sh",
+    "build-development.sh",
+    "build-production.sh",
     "deploy-common.sh",
-    "deploy-common.bat",
     "deploy-development.sh",
-    "deploy-development.bat",
     "deploy-production.sh",
-    "deploy-production.bat",
+    "plugin-build-proto.sh",
+    "plugin-build-ssr.sh",
+    "plugin-build-docker.sh",
 )
+
+# Platforms whose services are deployable server processes (docker-swarm
+# candidates). cli/mobile-app/pc-app/browser-extension are local/client
+# artifacts, not docker-swarm services, so they do not get Docker templates.
+_DOCKER_SERVICE_PLATFORMS = frozenset({"backend", "backend-service", "frontend", "scheduler"})
+_SERVICE_DOCKER_FILE_NAMES = ("Dockerfile", ".dockerignore")
 
 
 def existing_platforms(root: Path) -> list[str]:
@@ -127,6 +136,23 @@ def _copy_platform_extras(platform: str, name: str, dest: Path) -> None:
         copy_file(file, target, replace=replace, force=True)
 
 
+def _copy_service_docker_templates(name: str, dest: Path) -> None:
+    """Copy the docker-swarm plugin's Dockerfile/.dockerignore stub into a new service."""
+    src = paths.templates_dir() / "platform" / "service"
+    if not src.is_dir():
+        return
+    replace = {"__NAME__": name}
+    for filename in _SERVICE_DOCKER_FILE_NAMES:
+        file = src / filename
+        if not file.is_file():
+            continue
+        target = dest / filename
+        if target.exists():
+            typer.echo(f"skip (exists): {target}")
+            continue
+        copy_file(file, target, replace=replace, force=True)
+
+
 def create_service(root: Path, platform: str, name: str) -> None:
     if not _SERVICE_NAME_RE.match(name):
         abort("invalid name: use letters, numbers, _ or -")
@@ -140,6 +166,8 @@ def create_service(root: Path, platform: str, name: str) -> None:
     base.mkdir(parents=True, exist_ok=True)
     _copy_env_templates(platform, name, base)
     _copy_platform_extras(platform, name, base)
+    if platform in _DOCKER_SERVICE_PLATFORMS:
+        _copy_service_docker_templates(name, base)
 
     if platform in {"backend", "backend-service", "scheduler"}:
         for sub in ("apps", "services", "domains", "modules"):
@@ -261,5 +289,7 @@ def add_service_flow(
     typer.echo(f"run all: make {chosen}")
     typer.echo(f"run one: make {chosen} NAME={name}")
     typer.echo(f"  or: {chosen}/scripts/run.sh [{name}]")
+    typer.echo(f"build development: make {chosen}-build-development NAME={name}")
+    typer.echo(f"build production: make {chosen}-build-production NAME={name}")
     typer.echo(f"deploy development: make {chosen}-deploy-development NAME={name}")
     typer.echo(f"deploy production: make {chosen}-deploy-production NAME={name}")

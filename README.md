@@ -52,12 +52,58 @@ Use with `-t` / `--type` (repeatable on `init` / `platform add`):
 - Claude `settings.json`
 - Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
 - `Diff.md` — user-maintained architecture difference and manual restoration notes
-- Selected platform roots with `scripts/run.*` and development/production deploy templates
+- Selected platform roots with `scripts/run.*` and development/production build/deploy templates
 
-The root `Makefile` / `make.bat` wires platform run and deploy entry points. Deploy
-templates print the exact file to implement and fail until the project supplies
-its build/package and upload logic. They remain platform-level; do not add
+The root `Makefile` / `make.bat` wires platform run, build, and deploy entry points.
+Build/deploy templates print the exact file to implement and fail until the project
+supplies its build/package and upload logic. They remain platform-level; do not add
 per-service `scripts/` directories or per-service Makefiles.
+
+`run.*` ships as `.sh` + `.bat` + `.ps1` since local dev runs natively per platform.
+`build-*` and `deploy-*` ship as `.sh` only — build/deploy tooling (Docker, etc.) is
+not native to Windows, so `make.bat` runs those targets through WSL; macOS/Linux use
+the shell script directly.
+
+`build-common.sh` is the same file for every platform and is a thin plugin host:
+it runs every `scripts/plugin-build-*.sh` file present, then falls through to its
+own generic build guard. The `build` segment names the consumer (a deploy-side
+plugin would be `plugin-deploy-*.sh` instead). Each plugin is its own file —
+visible in `scripts/`, and runnable standalone — and self-detects whether it
+applies by folder presence, not a platform-name check, so any platform can opt in.
+
+- `plugin-build-proto.sh` → protoc codegen guard when `<platform>/proto/` exists.
+  `backend` always has this (fixed gRPC MSA root, see `yj-backend-msa`); any other
+  platform (including `backend-service`) gets the same guard only if it creates
+  `proto/` too. protoc is the standard; buf is not used.
+- `plugin-build-ssr.sh` → template/asset build guard when
+  `<platform>/{service}/views/` exists, checked per service. Any platform's
+  service can opt in by creating `views/`.
+- `plugin-build-docker.sh` → docker image **build only** (no push, no
+  swarm/stack rollout — that belongs in a deploy-side plugin) guard, per
+  service that has a `Dockerfile` (delete it to opt that service out). Builds
+  always use `.env.development` or `.env.production` depending on which
+  environment is targeted. The image version comes from the service's
+  `package.json`/`pyproject.toml` `version` field when present, otherwise the
+  `VERSION` env var — set it for languages with no package-manifest version
+  field.
+
+None of these plugins imply each other, and using gRPC in `backend-service` does
+not make it MSA — see `yj-backend-msa` / `yj-backend-service` for what each
+option chapter actually changes.
+
+- `yjcli service add` adds `Dockerfile` + `.dockerignore` to new services under
+  deployable platforms (`backend`, `backend-service`, `frontend`, `scheduler`);
+  `cli`/`mobile-app`/`pc-app`/`browser-extension` are local/client artifacts, not
+  docker-swarm services, so they don't get one. The Dockerfile is
+  language-agnostic and intentionally has no `FROM` yet — `docker build` fails
+  until it's replaced, matching every other generated build/deploy stub.
+
+`deploy-common.sh` is the same kind of plugin host for the deploy side: after
+calling the matching build script, it runs every `scripts/plugin-deploy-*.sh`
+file present (none ship by default — pushing an image, `docker stack deploy`,
+`kubectl apply`, etc. are deploy-side plugins the project adds). `deploy-development.sh`
+/ `deploy-production.sh` call `deploy-common.sh` and then own their own
+upload/rollout guidance only.
 
 `Diff.md` is created only when missing, including with `init --force`. yjcli never
 reads, updates, overwrites, or uses it for automatic restoration during sync or
@@ -80,8 +126,10 @@ inferring npm, uv, Go, or another language/runtime from project manifests.
 ```bash
 make <platform>                 # all services under that platform (concurrent)
 make <platform> NAME=<service>  # one service
+make <platform>-build-development  [NAME=<service>]
+make <platform>-build-production   [NAME=<service>]
 make <platform>-deploy-development [NAME=<service>]
-make <platform>-deploy-production [NAME=<service>]
+make <platform>-deploy-production  [NAME=<service>]
 make help
 ```
 
@@ -91,7 +139,7 @@ make help
 |---------|------|
 | `yjcli sync agents` | After editing `AGENTS.md` — refreshes `CLAUDE.md` |
 | `yjcli sync skills` | Refresh packaged skills (Cursor / Claude / Codex) |
-| `yjcli sync make` | Overwrite root make/run files; install missing deploy scripts while preserving implemented ones |
+| `yjcli sync make` | Overwrite root make/run files; install missing build/deploy scripts while preserving implemented ones |
 | `yjcli sync all` | Soft upgrade — mirror CLAUDE + skills + make (**keeps** your `AGENTS.md`) |
 | `yjcli sync migrate -y` | **Hard** upgrade — package template overwrites `AGENTS.md`, wipes skills dirs, drops legacy rules/`.agent`, refreshes settings/TOOLS/gitignore/make |
 

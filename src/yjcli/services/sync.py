@@ -86,18 +86,21 @@ def sync_make(root: Path, *, force: bool = True) -> None:
     typer.echo("synced: packaged Makefile, make.bat -> repo root")
 
     scripts_src = templates / "platform" / "scripts"
-    managed_names = ("run.sh", "run.bat", "run-all.ps1")
-    deploy_names = (
+    managed_names = ("run.sh", "run.bat", "run.ps1")
+    owned_names = (
+        "build-common.sh",
+        "build-development.sh",
+        "build-production.sh",
         "deploy-common.sh",
-        "deploy-common.bat",
         "deploy-development.sh",
-        "deploy-development.bat",
         "deploy-production.sh",
-        "deploy-production.bat",
+        "plugin-build-proto.sh",
+        "plugin-build-ssr.sh",
+        "plugin-build-docker.sh",
     )
     missing = [
         name
-        for name in (*managed_names, *deploy_names)
+        for name in (*managed_names, *owned_names)
         if not (scripts_src / name).is_file()
     ]
     if missing:
@@ -113,19 +116,14 @@ def sync_make(root: Path, *, force: bool = True) -> None:
         ensure_real_dir(scripts_dir)
         for name in managed_names:
             copy_file(scripts_src / name, scripts_dir / name, force=force)
-        for name in deploy_names:
+        for name in owned_names:
             copy_file(scripts_src / name, scripts_dir / name, skip_existing=True)
-        executable_names = (
-            "run.sh",
-            "deploy-common.sh",
-            "deploy-development.sh",
-            "deploy-production.sh",
-        )
+        executable_names = ("run.sh", *owned_names)
         for name in executable_names:
             target = scripts_dir / name
             if target.is_file():
                 target.chmod(target.stat().st_mode | 0o111)
-        typer.echo(f"synced: {platform}/scripts (run refreshed; deploy preserved)")
+        typer.echo(f"synced: {platform}/scripts (run refreshed; build/deploy preserved)")
 
 
 def sync_all(root: Path, *, force: bool = True) -> None:

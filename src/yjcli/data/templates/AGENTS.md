@@ -59,11 +59,18 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 | `CLAUDE.md` | Mirror of `AGENTS.md` — do not edit; refresh with `yjcli sync agents` |
 | `TOOLS.md` | Release-tools feature spec (version / deploy / git) |
 | `Diff.md` | User-maintained reference for project differences from yjcli defaults; yjcli never updates or restores from it |
-| `Makefile` | Root entry — run via `make <platform>`; deploy via `<platform>-deploy-development\|production`, optionally with `NAME=<service>` |
-| `make.bat` | Extensible Windows counterpart of root Makefile |
-| `<platform>/scripts/deploy-common.*` | Repository-owned shared build/package implementation |
-| `<platform>/scripts/deploy-development.*` | Repository-owned development upload/deploy implementation |
-| `<platform>/scripts/deploy-production.*` | Repository-owned production upload/deploy implementation |
+| `Makefile` | Root entry — run via `make <platform>`; build via `<platform>-build-development\|production`, deploy via `<platform>-deploy-development\|production`, optionally with `NAME=<service>` |
+| `make.bat` | Windows counterpart of root Makefile — `run.*` is native; `build-*`/`deploy-*` targets shell out to WSL (build/deploy tooling such as Docker is not native to Windows) |
+| `<platform>/scripts/build-common.sh` | Repository-owned shared build/package implementation; same file for every platform — runs every `scripts/plugin-build-*.sh` present, then its own generic build guard |
+| `<platform>/scripts/plugin-build-proto.sh` | Plugin: protoc codegen guard, self-detects `<platform>/proto/` at runtime — no platform-name branching, any platform can opt in |
+| `<platform>/scripts/plugin-build-ssr.sh` | Plugin: template/asset build guard, self-detects `<platform>/{service}/views/` per service — no platform-name branching, any platform's service can opt in |
+| `<platform>/scripts/plugin-build-docker.sh` | Plugin: docker image **build only** (no push, no swarm/stack rollout — that's a deploy-side plugin's job), self-detects `{service}/Dockerfile` per service; resolves image version from `package.json`/`pyproject.toml`, else the `VERSION` env var |
+| `<platform>/scripts/build-development.sh` | Repository-owned development build implementation (calls `build-common.sh`) |
+| `<platform>/scripts/build-production.sh` | Repository-owned production build implementation (calls `build-common.sh`) |
+| `<platform>/scripts/deploy-common.sh` | Repository-owned shared deploy orchestration; same file for every platform — calls the matching build script, then runs every `scripts/plugin-deploy-*.sh` present (none ship by default) |
+| `<platform>/scripts/deploy-development.sh` | Repository-owned development upload/deploy implementation (calls `deploy-common.sh`, then owns upload guidance) |
+| `<platform>/scripts/deploy-production.sh` | Repository-owned production upload/deploy implementation (calls `deploy-common.sh`, then owns upload guidance) |
+| `<platform>/{service}/Dockerfile`, `.dockerignore` | Docker build stub for a service, added by `yjcli service add` for deployable platforms (`backend`, `backend-service`, `frontend`, `scheduler`); language-agnostic — fails `docker build` until replaced |
 | `.gitignore` | Canonical ignore rules |
 | `.cursor/skills/` | Cursor skills (copied from package) |
 | `.claude/skills/` | Claude skills (copied from package) |
@@ -99,7 +106,11 @@ Paths from `yjcli init` are fixed; add platform/app rows with `<path>` / `<role>
 # build
 <command>
 
-# deploy (generated stubs fail until implemented)
+# build (generated stubs fail until implemented; .sh only — Windows runs via WSL)
+make <platform>-build-development [NAME=<service>]
+make <platform>-build-production [NAME=<service>]
+
+# deploy (generated stubs fail until implemented; .sh only — Windows runs via WSL)
 make <platform>-deploy-development [NAME=<service>]
 make <platform>-deploy-production [NAME=<service>]
 ```
