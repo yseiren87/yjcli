@@ -56,6 +56,13 @@ Feature rules and orchestration live in background flow — not in listeners/`ap
 
 - UI only; talk to background via messaging.
 
+## Contracts
+
+- Consume `backend/proto/dist/{lang}` (symlink) only through a companion
+  `native_*` host or a generated web client — do not copy `.proto` sources
+  into `browser-extension/`. Browsers rarely speak gRPC directly; route
+  through the native host or a REST/gRPC-web gateway instead.
+
 ## native_host
 
 - Folder name: `native_{name}/` under `browser-extension/`.

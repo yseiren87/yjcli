@@ -1,5 +1,5 @@
-# Never bake env values into the image — the docker-swarm plugin injects them
-# via --build-arg from .env.development / .env.production at build time.
+# Never bake env values into the image — scripts/plugin-build-docker.sh injects
+# them via --build-arg from .env.development / .env.production at build time.
 .env
 .env.*
 

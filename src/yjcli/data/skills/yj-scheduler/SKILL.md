@@ -71,6 +71,31 @@ scheduler/
 - Do not import another platform's source tree; communicate through explicit
   APIs or generated contracts.
 
+## Optional: template rendering (reports/emails)
+
+Templating is an **option**, not this platform's default. Enable only when a
+job must render HTML/text output (e.g. an email digest or a generated report).
+
+When enabled for `{scheduler_name}`, add:
+
+```text
+views/{job_name}/*.html | views/layouts/* | views/partials/*
+```
+
+- flow (`services/{job_name}`) returns plain data / render context — never
+  pre-rendered HTML. Rendering happens at the point of use (e.g. before
+  sending an email), not scattered across `modules/`.
+- Template/asset bundling is wired the same way as other platforms:
+  `plugin-build-ssr.sh` auto-detects `{scheduler_name}/views/` and adds a
+  build guard for it. Implement the bundling there, not as an ad-hoc command.
+- If no job renders output, do **not** create `views/` speculatively.
+
+## Contracts
+
+- Consume `backend/proto/dist/{lang}` (symlink) for MSA contracts when a job
+  must call backend services directly; do not copy `.proto` sources into
+  `scheduler/`.
+
 ## Scheduling policy
 
 For every job, make these decisions explicit near its registration or config:

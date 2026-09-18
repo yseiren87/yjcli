@@ -43,11 +43,22 @@ _PLATFORM_SCRIPT_NAMES = (
     "plugin-build-docker.sh",
 )
 
-# Platforms whose services are deployable server processes (docker-swarm
-# candidates). cli/mobile-app/pc-app/browser-extension are local/client
-# artifacts, not docker-swarm services, so they do not get Docker templates.
-_DOCKER_SERVICE_PLATFORMS = frozenset({"backend", "backend-service", "frontend", "scheduler"})
-_SERVICE_DOCKER_FILE_NAMES = ("Dockerfile", ".dockerignore")
+# Optional per-service boilerplate plugins: each capability self-declares which
+# platforms opt in and which template files to stamp into a new service, the
+# same "capability is its own file/entry, no platform-name branching in the
+# logic that applies it" contract as scripts/plugin-build-*.sh. Add a capability
+# by adding an entry here — not by growing create_service()'s if/elif chain.
+_SERVICE_BOILERPLATE_PLUGINS: tuple[dict, ...] = (
+    {
+        # docker: image build stub for deployable server processes (docker-swarm
+        # candidates). cli/mobile-app/pc-app/browser-extension are local/client
+        # artifacts, not docker-swarm services, so they do not opt in.
+        "name": "docker",
+        "platforms": frozenset({"backend", "backend-service", "frontend", "scheduler"}),
+        "template_dir": "service",
+        "files": ("Dockerfile", ".dockerignore"),
+    },
+)
 
 
 def existing_platforms(root: Path) -> list[str]:
@@ -136,21 +147,24 @@ def _copy_platform_extras(platform: str, name: str, dest: Path) -> None:
         copy_file(file, target, replace=replace, force=True)
 
 
-def _copy_service_docker_templates(name: str, dest: Path) -> None:
-    """Copy the docker-swarm plugin's Dockerfile/.dockerignore stub into a new service."""
-    src = paths.templates_dir() / "platform" / "service"
-    if not src.is_dir():
-        return
+def _copy_service_boilerplate_plugins(platform: str, name: str, dest: Path) -> None:
+    """Stamp each opted-in capability's template files into a new service."""
     replace = {"__NAME__": name}
-    for filename in _SERVICE_DOCKER_FILE_NAMES:
-        file = src / filename
-        if not file.is_file():
+    for plugin in _SERVICE_BOILERPLATE_PLUGINS:
+        if platform not in plugin["platforms"]:
             continue
-        target = dest / filename
-        if target.exists():
-            typer.echo(f"skip (exists): {target}")
+        src = paths.templates_dir() / "platform" / plugin["template_dir"]
+        if not src.is_dir():
             continue
-        copy_file(file, target, replace=replace, force=True)
+        for filename in plugin["files"]:
+            file = src / filename
+            if not file.is_file():
+                continue
+            target = dest / filename
+            if target.exists():
+                typer.echo(f"skip (exists): {target}")
+                continue
+            copy_file(file, target, replace=replace, force=True)
 
 
 def create_service(root: Path, platform: str, name: str) -> None:
@@ -166,8 +180,7 @@ def create_service(root: Path, platform: str, name: str) -> None:
     base.mkdir(parents=True, exist_ok=True)
     _copy_env_templates(platform, name, base)
     _copy_platform_extras(platform, name, base)
-    if platform in _DOCKER_SERVICE_PLATFORMS:
-        _copy_service_docker_templates(name, base)
+    _copy_service_boilerplate_plugins(platform, name, base)
 
     if platform in {"backend", "backend-service", "scheduler"}:
         for sub in ("apps", "services", "domains", "modules"):

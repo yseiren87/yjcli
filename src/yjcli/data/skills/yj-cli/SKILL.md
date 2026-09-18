@@ -63,6 +63,12 @@ infra  = modules/{module}.{ext} # config, http, db, output formatters
 
 - Printing helpers OK; **what** to print is decided in the command (entry).
 
+## Contracts
+
+- Consume `backend/proto/dist/{lang}` (symlink) for MSA contracts when a
+  command must call backend services directly; do not copy `.proto` sources
+  into `cli/`.
+
 ## Import direction
 
 ```text

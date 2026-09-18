@@ -63,6 +63,26 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 - Generated UI primitives: do not hand-edit or duplicate.
 - Consume backend contracts via generated client or `backend/proto/dist/{lang}` — never copy `.proto` into frontend.
 
+## Optional: server templating (SSR)
+
+Templating is an **option**, not this app's default. Most apps stay a
+client-rendered SPA — enable only when this app must render HTML server-side
+(e.g. a lightweight SSR/SSG entry alongside the Vite build).
+
+When enabled, add sibling to `src/`:
+
+```text
+views/{page}.html | views/layouts/* | views/partials/*
+```
+
+- Template/asset bundling is wired the same way as other platforms:
+  `plugin-build-ssr.sh` auto-detects `{app_name}/views/` and adds a build
+  guard for it. Implement the bundling there, not as an ad-hoc one-off command.
+- Keep `src/` (client bundle) and `views/` (server-rendered templates)
+  separate; do not fold template markup into `pages/`/`components/`.
+- Do **not** create `views/` speculatively — it does not apply to a normal
+  client-only SPA.
+
 ## Import direction
 
 ```text
