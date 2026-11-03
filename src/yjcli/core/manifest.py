@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,23 @@ class Manifest:
     plugins: list[str] = field(default_factory=list)
     platforms: dict[str, list[str]] = field(default_factory=dict)  # platform -> services
     files: dict[str, FileRecord] = field(default_factory=dict)
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    """Numeric release part of a version ("0.3.1rc1" -> (0, 3, 1)); unknown -> ()."""
+    m = re.match(r"(\d+(?:\.\d+)*)", version or "")
+    if not m:
+        return ()
+    parts = [int(x) for x in m.group(1).split(".")]
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def is_older(installed: str, recorded: str) -> bool:
+    """True when the installed yjcli is older than the one that wrote the manifest."""
+    a, b = version_key(installed), version_key(recorded)
+    return bool(a) and bool(b) and a < b
 
 
 def sha256(data: bytes) -> str:

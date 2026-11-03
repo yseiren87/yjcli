@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
+from pathlib import Path
+
 from rich.console import Console
 from rich.table import Table
 
@@ -35,11 +38,16 @@ def _platforms_text(plan: Plan, draft: Draft) -> str:
     return ", ".join(out) or "—"
 
 
-def print_summary(console: Console, plan: Plan, draft: Draft, *, details: bool = False) -> None:
+def print_summary(
+    console: Console, plan: Plan, draft: Draft, *, details: bool = False, diff_root: Path | None = None
+) -> None:
     title = "계획 요약 — " + ("신규 설치" if plan.mode == "new" else "업데이트")
     table = Table(title=title, show_header=False, title_justify="left")
     table.add_column(style="bold")
     table.add_column()
+    if plan.from_version is not None:
+        same = plan.from_version == plan.to_version
+        table.add_row("yjcli", plan.to_version if same else f"{plan.from_version} → {plan.to_version}")
     table.add_row("LLM", ", ".join(plan.llms) or "—")
     table.add_row("플랫폼", _platforms_text(plan, draft))
     table.add_row("플러그인", ", ".join(plan.plugins) or "없음 (코드만)")
@@ -62,10 +70,29 @@ def print_summary(console: Console, plan: Plan, draft: Draft, *, details: bool =
             extra = f" ({action.reason})" if action.reason else ""
             console.print(f"    {label:<10} {action.path}{extra}", markup=False)
 
+    if diff_root is not None:
+        print_diffs(console, plan, diff_root)
+
     for note in plan.notes:
         console.print(f"  · {note}", markup=False)
     for warning in plan.warnings:
         console.print(f"  [yellow]{warning}[/yellow]")
+
+
+def print_diffs(console: Console, plan: Plan, root: Path) -> None:
+    """Unified diff of every file the plan changes in place (manifest excluded)."""
+    for action in plan.actions:
+        if action.kind not in ("overwrite", "merge") or action.path.startswith(".yjcli/"):
+            continue
+        old = (root / action.path).read_text(encoding="utf-8", errors="replace").splitlines()
+        new = (action.content or b"").decode("utf-8", errors="replace").splitlines()
+        lines = list(difflib.unified_diff(old, new, f"a/{action.path}", f"b/{action.path}", lineterm=""))
+        if not lines:
+            continue
+        console.print()
+        for line in lines:
+            style = "green" if line.startswith("+") else "red" if line.startswith("-") else "cyan" if line.startswith("@@") else None
+            console.print(line, style=style, markup=False, highlight=False)
 
 
 def print_next_steps(console: Console, plan: Plan) -> None:

@@ -9,10 +9,10 @@ from yjcli.catalog.platforms import PLATFORMS
 from yjcli.catalog.plugins import PLUGINS, drop_dependents, resolve_requires
 from yjcli.catalog.skills import SKILLS, routing_rows, skills_for
 from yjcli.core import render as r
-from yjcli.core.manifest import FileRecord, Manifest, dumps, load
+from yjcli.core.manifest import FileRecord, Manifest, dumps, is_older, load
 from yjcli.core.names import parse_names
 from yjcli.core.planner import build_plan
-from yjcli.core.selection import from_args, missing
+from yjcli.core.selection import fill_from_manifest, from_args, missing
 from yjcli.core.state import read_state
 
 
@@ -63,7 +63,7 @@ class PluginTests(unittest.TestCase):
 
 
 class SkillCatalogTests(unittest.TestCase):
-    """Doc §5.6 — catalog and template consistency."""
+    """Doc §5.7 — catalog and template consistency."""
 
     skills_dir = data_root() / "skills"
 
@@ -106,17 +106,18 @@ class SkillCatalogTests(unittest.TestCase):
         self.assertIn("native_*", rows[0][0])
 
 
+def plan_for(root: Path, **args):
+    state = read_state(root)
+    base = dict(mode=None, llm=None, platform=None, plugin=None, name=None, option=None)
+    draft, errors = from_args(state, **{**base, **args})
+    assert errors == [], errors
+    fill_from_manifest(draft, state)
+    return build_plan(draft, state, version="test")
+
+
 class PlannerTests(unittest.TestCase):
     def _plan(self, root: Path, **args):
-        state = read_state(root)
-        base = dict(mode=None, llm=None, platform=None, plugin=None, name=None, option=None)
-        draft, errors = from_args(state, **{**base, **args})
-        self.assertEqual(errors, [])
-        if draft.mode == "update":
-            from yjcli.core.selection import fill_from_manifest
-
-            fill_from_manifest(draft, state)
-        return build_plan(draft, state, version="test")
+        return plan_for(root, **args)
 
     def test_missing_lists_everything(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -144,6 +145,38 @@ class PlannerTests(unittest.TestCase):
             created = {a.path for a in plan.actions if a.kind == "create"}
             self.assertIn("backend/a2/Dockerfile", created)
             self.assertNotIn("backend/a1/Dockerfile", created)  # deleted on purpose = opted out
+
+
+class UpdateTests(unittest.TestCase):
+    def _plan(self, root: Path, **args):
+        return plan_for(root, **args)
+
+    def test_skill_additions_are_appended(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extra = root / ".yjcli/skills/yj-backend.md"
+            extra.parent.mkdir(parents=True)
+            extra.write_text("- local rule\n")
+            plan = self._plan(root, llm=["claude"], name=["backend=a1"], plugin=["none"])
+            skill = next(a for a in plan.actions if a.path == ".claude/skills/yj-backend/SKILL.md")
+            self.assertTrue(skill.content.decode().endswith("- local rule\n"))
+            core = next(a for a in plan.actions if a.path == ".claude/skills/yj-arch-core/SKILL.md")
+            self.assertNotIn(b"Project-specific additions", core.content)
+
+    def test_agents_md_has_rules_block(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plan = self._plan(Path(tmp), llm=["claude"], name=["backend=a1"], plugin=["none"])
+            agents = next(a for a in plan.actions if a.path == "AGENTS.md").content.decode()
+            for name in ("rules", "skills", "layout"):
+                self.assertIn(f"<!-- yjcli:{name} -->", agents)
+            self.assertIn("### Output & docs", agents)
+
+    def test_version_guard_comparison(self) -> None:
+        self.assertTrue(is_older("0.3.0", "0.4.0"))
+        self.assertTrue(is_older("0.3.0", "0.3.1rc1"))
+        self.assertFalse(is_older("0.4.0", "0.3.0"))
+        self.assertFalse(is_older("0.3.0", "0.3"))
+        self.assertFalse(is_older("0.0.0+local", "1.0.0"))  # unknown dev build never blocks
 
 
 class ManifestTests(unittest.TestCase):

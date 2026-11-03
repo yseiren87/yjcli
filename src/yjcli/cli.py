@@ -47,7 +47,8 @@ OptionOpt = Annotated[Optional[list[str]], typer.Option("--option", "-o", help="
 ModeOpt = Annotated[Optional[str], typer.Option("--mode", help="new | update (기본: 자동 감지)")]
 YesOpt = Annotated[bool, typer.Option("--yes", "-y", help="확인 없이 실행")]
 DryRunOpt = Annotated[bool, typer.Option("--dry-run", help="계획만 출력하고 종료")]
-ForceOpt = Annotated[bool, typer.Option("--force", help="사용자가 수정한 관리 파일도 덮어씀")]
+ForceOpt = Annotated[bool, typer.Option("--force", help="사용자가 수정한 관리 파일도 덮어씀, 버전 가드 무시")]
+DiffOpt = Annotated[bool, typer.Option("--diff", help="바뀌는 파일의 내용 차이(diff)도 출력")]
 PathOpt = Annotated[
     Path,
     typer.Option("--path", help="대상 저장소 루트 (기본: 현재 폴더)", file_okay=False, dir_okay=True, resolve_path=True),
@@ -81,6 +82,7 @@ def run(
     yes: bool,
     dry_run: bool,
     force: bool,
+    diff: bool = False,
     prepare=None,
 ) -> None:
     if mode not in (None, "new", "update"):
@@ -90,6 +92,12 @@ def run(
         state = read_state(root)
     except ValueError as exc:
         _fail([str(exc)])
+    if state.manifest and manifest_mod.is_older(package_version(), state.manifest.yjcli_version) and not force:
+        _fail([
+            f"설치된 yjcli({package_version()})가 이 저장소를 마지막으로 구성한 버전"
+            f"({state.manifest.yjcli_version})보다 낮습니다. 옛 내용으로 덮어쓰지 않도록 중단합니다.",
+            "`uv tool upgrade yjcli` 후 다시 실행하세요 (그래도 진행하려면 --force).",
+        ])
     draft, errors = from_args(state, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option)
     if errors:
         _fail(errors)
@@ -110,7 +118,8 @@ def run(
         from yjcli.ui.wizard import Cancelled, run_wizard
 
         try:
-            draft, plan = run_wizard(draft, state, QuestionaryPrompter(), console, make_plan, dry_run=dry_run)
+            draft, plan = run_wizard(draft, state, QuestionaryPrompter(), console, make_plan,
+                                     dry_run=dry_run, diff_root=root if diff else None)
         except (Cancelled, KeyboardInterrupt):
             console.print("취소했습니다. 아무 파일도 바꾸지 않았습니다.")
             raise typer.Exit(code=0)
@@ -126,7 +135,7 @@ def run(
         if errors:
             _fail(errors)
         plan = make_plan(draft)
-        print_summary(console, plan, draft, details=dry_run)
+        print_summary(console, plan, draft, details=dry_run, diff_root=root if diff else None)
         if dry_run:
             return
 
@@ -155,6 +164,7 @@ def main(
     yes: YesOpt = False,
     dry_run: DryRunOpt = False,
     force: ForceOpt = False,
+    diff: DiffOpt = False,
     path: PathOpt = Path("."),
     version_: Annotated[
         Optional[bool],
@@ -165,7 +175,27 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
     run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
-        yes=yes, dry_run=dry_run, force=force)
+        yes=yes, dry_run=dry_run, force=force, diff=diff)
+
+
+@app.command("update")
+def update(
+    yes: YesOpt = False,
+    dry_run: DryRunOpt = False,
+    force: ForceOpt = False,
+    diff: DiffOpt = False,
+    path: PathOpt = Path("."),
+) -> None:
+    """선택은 그대로 두고, 설치된 yjcli 의 최신 스킬·AGENTS.md 블록·관리 파일을 반영."""
+
+    def prepare(draft: Draft, state) -> None:
+        if not state.manifest:
+            _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli` 로 구성하세요"])
+        draft.given |= {"llms", "platforms", "plugins"}
+        draft.given |= {f"names:{p}" for p in state.manifest.platforms}
+
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+        yes=yes, dry_run=dry_run, force=force, diff=diff, prepare=prepare)
 
 
 @app.command("plan")
@@ -177,11 +207,12 @@ def plan_cmd(
     option: OptionOpt = None,
     mode: ModeOpt = None,
     force: ForceOpt = False,
+    diff: DiffOpt = False,
     path: PathOpt = Path("."),
 ) -> None:
     """실행하지 않고 계획만 출력 (--dry-run 과 같음)."""
     run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
-        yes=True, dry_run=True, force=force)
+        yes=True, dry_run=True, force=force, diff=diff)
 
 
 @service_app.command("add")
@@ -217,6 +248,10 @@ def status(path: PathOpt = Path(".")) -> None:
         console.print("yjcli 로 구성되지 않은 폴더입니다 (.yjcli/manifest.toml 없음).")
         raise typer.Exit(code=1)
     console.print(f"yjcli {m.yjcli_version} 로 구성됨 (설치된 버전 {package_version()})", markup=False)
+    if manifest_mod.is_older(package_version(), m.yjcli_version):
+        console.print("[yellow]  설치된 yjcli 가 더 낮습니다 — `uv tool upgrade yjcli` 필요[/yellow]")
+    elif manifest_mod.version_key(package_version()) != manifest_mod.version_key(m.yjcli_version):
+        console.print("  새 버전이 설치되어 있습니다 — `yjcli update` 로 반영하세요", markup=False)
     console.print(f"  LLM: {', '.join(m.llms)}", markup=False)
     console.print(f"  플러그인: {', '.join(m.plugins) or '없음'}", markup=False)
     for pid, services in m.platforms.items():

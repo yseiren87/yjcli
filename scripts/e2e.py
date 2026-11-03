@@ -109,6 +109,27 @@ class Case:
         base = self.dir / sub
         return sorted(str(p.relative_to(base)) for p in base.rglob("*") if p.is_file())
 
+    def fake_older_package(self, rel: str, content: str) -> None:
+        """Make a managed file look like an older yjcli wrote it (content + recorded hash)."""
+        import hashlib
+        import re
+
+        f = self.dir / rel
+        f.write_text(content)
+        digest = hashlib.sha256(f.read_bytes()).hexdigest()
+        manifest = self.dir / ".yjcli/manifest.toml"
+        text = manifest.read_text()
+        pattern = r'("%s" = \{ policy = "managed", sha256 = ")[0-9a-f]+' % re.escape(rel)
+        updated, n = re.subn(pattern, r"\g<1>" + digest, text)
+        self.check(n == 1, f"manifest record for {rel} not found")
+        manifest.write_text(updated)
+
+    def set_manifest_version(self, version: str) -> None:
+        manifest = self.dir / ".yjcli/manifest.toml"
+        lines = [f'yjcli_version = "{version}"' if l.startswith("yjcli_version") else l
+                 for l in manifest.read_text().splitlines()]
+        manifest.write_text("\n".join(lines) + "\n")
+
     def set_run_command(self, platform: str, service: str, command: str) -> None:
         f = self.dir / "tools" / "secrets" / platform / service / ".env.local-dev"
         lines = [l for l in f.read_text().splitlines() if not l.startswith("RUN_COMMAND=")]
@@ -466,6 +487,76 @@ def _(c: Case):
     c.output_has(r, "LLM: claude", "플러그인: runner, secrets", "backend: a1")
     r = c._run([sys.executable, "-m", "yjcli", "doctor"], 0, cwd=REPO, label="yjcli doctor")
     c.output_has(r, "templates:", "plugins:", "skills:")
+
+
+@case("19-update-propagation", "yjcli update: 새 패키지의 스킬·AGENTS.md 규칙 블록 반영, 사용자 편집 보존")
+def _(c: Case):
+    c.yjcli("-l", "claude,cursor", "-n", "backend=a1", "--plugin", "runner", "-y")
+    # an older yjcli wrote different skill/runner content
+    c.fake_older_package(".claude/skills/yj-arch-core/SKILL.md", "OLD SKILL\n")
+    c.fake_older_package("tools/runner/run.sh", "#!/usr/bin/env bash\necho old\n")
+    # an older AGENTS.md rules block + the user's own edits outside blocks
+    agents = c.dir / "AGENTS.md"
+    text = agents.read_text()
+    text = text.replace("- No filler, no repeated explanations.\n", "- OLD RULE\n")
+    text = text.replace("- `<rule>`", "- Always write tests first.")
+    text = text.replace("- Name: `<name>`", "- Name: `shop`")
+    agents.write_text(text)
+    r = c.yjcli("update", "--dry-run", "--diff")
+    c.output_has(r, "~ 덮어쓰기", ".claude/skills/yj-arch-core/SKILL.md", "-OLD SKILL", "+name: yj-arch-core",
+                 "-- OLD RULE", "+- No filler, no repeated explanations.")
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "OLD SKILL")  # dry-run wrote nothing
+    c.yjcli("update", "-y")
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "name: yj-arch-core")
+    c.lacks("tools/runner/run.sh", "echo old")
+    c.executable("tools/runner/run.sh")
+    c.contains("AGENTS.md", "- No filler, no repeated explanations.", "- Always write tests first.", "- Name: `shop`")
+    c.lacks("AGENTS.md", "OLD RULE")
+    no_changes(c, c.yjcli("update", "-y"))
+
+
+@case("20-skill-additions", "스킬 추가 규칙: .yjcli/skills/<skill>.md 가 모든 LLM 스킬에 덧붙음")
+def _(c: Case):
+    c.yjcli("-l", "claude,codex", "-n", "backend=a1", "--plugin", "none", "-y")
+    extra = c.dir / ".yjcli/skills/yj-backend.md"
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_text("- Use PostgreSQL via modules/db only.\n")
+    (c.dir / ".yjcli/skills/yj-typo.md").write_text("x\n")
+    r = c.yjcli("update", "-y")
+    c.output_has(r, "yj-typo.md: 알 수 없는 스킬 이름")
+    for d in (".claude/skills", ".agents/skills"):
+        c.contains(f"{d}/yj-backend/SKILL.md", "## Project-specific additions", "- Use PostgreSQL via modules/db only.",
+                   "<!-- from .yjcli/skills/yj-backend.md")
+        c.lacks(f"{d}/yj-arch-core/SKILL.md", "Project-specific additions")
+    c.contains("AGENTS.md", "`.yjcli/skills/<skill>.md`")
+    # editing the rendered skill directly is skipped and points to the additions file
+    skill = c.dir / ".claude/skills/yj-backend/SKILL.md"
+    skill.write_text(skill.read_text() + "\nhand edit\n")
+    r = c.yjcli("update", "-y")
+    c.output_has(r, "사용자가 수정함", ".yjcli/skills/yj-backend.md 에 추가 규칙을 적으세요")
+    c.yjcli("update", "--force", "-y")
+    extra.unlink()
+    c.yjcli("update", "-y")
+    c.lacks(".agents/skills/yj-backend/SKILL.md", "Project-specific additions")
+
+
+@case("21-version-guard", "버전 가드: 더 낮은 yjcli 는 덮어쓰지 않음")
+def _(c: Case):
+    c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
+    c.set_manifest_version("99.0.0")
+    for args in (("update", "-y"), ("-y",), ("service", "add", "-n", "backend=a2", "-y")):
+        r = c.yjcli(*args, expect=1)
+        c.output_has(r, "보다 낮습니다", "uv tool upgrade yjcli")
+    c.absent("backend/a2")
+    st = c.yjcli("status")
+    c.output_has(st, "설치된 yjcli 가 더 낮습니다")
+    c.yjcli("update", "--force", "-y")
+    c.lacks(".yjcli/manifest.toml", '"99.0.0"')
+    c.set_manifest_version("0.0.1")  # older repo → update hint, no block
+    st = c.yjcli("status")
+    c.output_has(st, "yjcli update")
+    r = c.yjcli("update", "-y")
+    c.output_has(r, "0.0.1 →")
 
 
 # =============================================================================

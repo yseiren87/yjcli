@@ -69,6 +69,8 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     manifest: Manifest | None = None
+    from_version: str | None = None  # yjcli version that wrote the previous manifest
+    to_version: str = ""
 
     def count(self, *kinds: str) -> int:
         return sum(1 for a in self.actions if a.kind in kinds)
@@ -150,6 +152,7 @@ def _layout_block(llms: list[str], platforms: list[str], plugins: list[str]) -> 
         ("`AGENTS.md`", "Agent / contributor guide (this file) — source of truth"),
         ("`.gitignore`", "Ignore rules (the `# >>> yjcli` block is managed)"),
         ("`.yjcli/manifest.toml`", "yjcli selection state — do not edit by hand"),
+        ("`.yjcli/skills/<skill>.md`", "(optional) project-specific rules appended to that rendered skill"),
     ]
     for llm in LLMS:
         if llm.id not in llms:
@@ -221,7 +224,26 @@ def _add_code(desired: _Desired, platform: Platform, service: str, is_new_platfo
                     desired.files[f"{platform.id}/{rel}"] = Spec(b"", "code")
 
 
-def _render_skill(skill_id: str, ctx: dict) -> bytes:
+ADDITIONS_DIR = Path(".yjcli") / "skills"
+
+
+def _skill_additions(root: Path, plan: "Plan") -> dict[str, str]:
+    """Project-specific rules from .yjcli/skills/<skill>.md (user-owned)."""
+    folder = root / ADDITIONS_DIR
+    if not folder.is_dir():
+        return {}
+    additions: dict[str, str] = {}
+    for file in sorted(folder.glob("*.md")):
+        if file.stem not in SKILL_BY_ID:
+            plan.warnings.append(f"! {ADDITIONS_DIR / file.name}: 알 수 없는 스킬 이름이라 무시합니다")
+            continue
+        text = file.read_text(encoding="utf-8").strip()
+        if text:
+            additions[file.stem] = text
+    return additions
+
+
+def _render_skill(skill_id: str, ctx: dict, addition: str | None = None) -> bytes:
     skill = SKILL_BY_ID[skill_id]
     text = _read(_skills_data() / skill_id / "SKILL.md")
     self_routes = ", ".join(f"`{pattern}`" for pattern, _ in skill.routes)
@@ -229,6 +251,13 @@ def _render_skill(skill_id: str, ctx: dict) -> bytes:
     left = r.leftover_tags(out)
     if left:
         raise r.RenderError(f"{skill_id}: unrendered tags {left}")
+    if addition:
+        out = (
+            out.rstrip("\n")
+            + f"\n\n## Project-specific additions\n\n<!-- from {ADDITIONS_DIR / (skill_id + '.md')} — edit that file, not this one -->\n\n"
+            + addition
+            + "\n"
+        )
     return out.encode()
 
 
@@ -262,6 +291,8 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
         new_platforms=[p for p in platforms if p in new_platforms],
         skills=skills,
         notes=list(draft.notes),
+        from_version=old.yjcli_version if old else None,
+        to_version=version,
     )
 
     desired = _Desired()
@@ -279,8 +310,12 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
 
     # ---- agent wiring ----
     agents_tpl = _read(_templates() / "root" / "AGENTS.md")
-    skills_block = _skills_block(llms, platforms, skills)
-    layout_block = _layout_block(llms, platforms, plugins)
+    blocks = {
+        "rules": _read(_templates() / "root" / "agents-rules.md").rstrip("\n"),
+        "skills": _skills_block(llms, platforms, skills),
+        "layout": _layout_block(llms, platforms, plugins),
+    }
+    additions = _skill_additions(state.root, plan)
     for llm in LLMS:
         if llm.id not in llms:
             continue
@@ -290,7 +325,9 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
             content = (_templates() / extra.template).read_bytes()
             desired.files[extra.dest] = Spec(content, SEED, introduce=llm.id not in old_llms, template_hash=sha256(content))
         for skill_id in skills:
-            desired.files[f"{llm.skills_dir}/{skill_id}/SKILL.md"] = Spec(_render_skill(skill_id, ctx), MANAGED)
+            desired.files[f"{llm.skills_dir}/{skill_id}/SKILL.md"] = Spec(
+                _render_skill(skill_id, ctx, additions.get(skill_id)), MANAGED
+            )
 
     # ---- plugins ----
     if any(p in plugins for p in MAKEFILE_PLUGINS):
@@ -367,6 +404,9 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
             if user_changed and not force:
                 why = "사용자가 수정함" if rec else "yjcli 가 만들지 않은 파일이 이미 있음"
                 plan.warnings.append(f"! {rel}: {why} — 건너뜀 (--force 로 덮어쓰기)")
+                if rel.endswith("/SKILL.md"):
+                    skill_id = rel.rsplit("/", 2)[-2]
+                    plan.warnings.append(f"  스킬은 직접 고치지 말고 {ADDITIONS_DIR / (skill_id + '.md')} 에 추가 규칙을 적으세요")
                 if rec:
                     records[rel] = rec
                 continue
@@ -384,7 +424,7 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
             records[rel] = FileRecord(SEED, sha256(spec.content), spec.template_hash)
 
     # AGENTS.md (seed + managed blocks)
-    _plan_agents(plan, root, agents_tpl, skills_block, layout_block, old_files, records)
+    _plan_agents(plan, root, agents_tpl, blocks, old_files, records)
     # .gitignore (merge block)
     _plan_gitignore(plan, root, _gitignore_block(plugins), records)
 
@@ -445,17 +485,17 @@ def _is_executable(path: Path) -> bool:
     return bool(path.stat().st_mode & 0o111)
 
 
-def _plan_agents(plan, root, template, skills_block, layout_block, old_files, records) -> None:
+def _plan_agents(plan, root, template, blocks: dict[str, str], old_files, records) -> None:
     rel = "AGENTS.md"
     path = root / rel
-    rendered = r.render(template, {"skills_block": skills_block, "layout_block": layout_block})
+    rendered = r.render(template, {f"{name}_block": body for name, body in blocks.items()})
     if not path.is_file():
         plan.actions.append(Action("create", rel, rendered.encode()))
         records[rel] = FileRecord(SEED, sha256(rendered.encode()))
         return
     text = path.read_text(encoding="utf-8")
     updated = text
-    for name, body in (("skills", skills_block), ("layout", layout_block)):
+    for name, body in blocks.items():
         replaced = r.replace_block(updated, name, body)
         if replaced is None:
             plan.warnings.append(f"! AGENTS.md: <!-- yjcli:{name} --> 블록이 없어 갱신하지 않습니다")

@@ -245,6 +245,7 @@ repo/
 |------|------|
 | `yjcli` | 위저드. 상태를 감지해 신규 또는 업데이트로 진행 |
 | `yjcli --yes` | 매니페스트(또는 인자)대로 바로 적용. 업데이트 자동화와 CI용 |
+| `yjcli update` | 선택은 그대로 두고, 설치된 yjcli 의 최신 스킬·AGENTS.md 블록·관리 파일만 반영 (§6.4) |
 | `yjcli plan` | 실행하지 않고 계획만 출력 (`--dry-run` 과 같음) |
 | `yjcli service add` | 업데이트 모드에서 4단계(서비스 이름)만 실행. 예: `yjcli service add -n backend=a3` |
 | `yjcli status` | 매니페스트 내용 + 패키지 버전 차이 + 사용자가 수정한 관리 파일 목록 |
@@ -264,6 +265,7 @@ repo/
 | `--mode` | 0. 상태 | `new` / `update` (자동 감지 결과를 덮어씀) |
 | `--yes` / `-y` | 5. 확인 | 확인 없이 실행 |
 | `--dry-run` | 5. 확인 | 계획만 출력하고 종료 |
+| `--diff` | 5. 확인 | 덮어쓰거나 블록을 바꾸는 파일의 내용 차이(unified diff)도 출력 |
 | `--path` | — | 대상 저장소 루트 |
 | `--force` | — | 사용자가 수정한 관리 파일도 덮어씀 (§6.3) |
 
@@ -476,6 +478,7 @@ Makefile = 공통 헤더(help)
 
 | 관리 블록 | 위치 (AGENTS.md 절) | 내용 | 원천 |
 |-----------|---------------------|------|------|
+| `<!-- yjcli:rules -->` | Agent operating rules (맨 앞) | yjcli 가 정하는 운영 규칙 (이 파일 사용법, 스킬 추가 규칙 위치, Output & docs) | `data/templates/root/agents-rules.md` |
 | `<!-- yjcli:skills -->` | Agent operating rules › Skills | 경로 → 스킬 라우팅 표, 스킬 설치 위치 | 설치한 스킬의 `routes`, 선택한 LLM 의 `skills_dir` (§5.4) |
 | `<!-- yjcli:layout -->` | Repository layout | 저장소 구조 표 | 공통 행 + 선택한 LLM·플랫폼·플러그인의 행 |
 
@@ -522,6 +525,12 @@ Makefile = 공통 헤더(help)
 - 마크다운 표는 행 사이에 주석을 넣으면 깨지므로, 생성되는 표는 **블록 안에 통째로** 두고 사용자가 추가하는 경로는 바로 아래 **별도 표**("Project-specific paths")에 적는다. 이 표는 블록 밖이라 yjcli 가 건드리지 않는다.
 - 행의 설명(Role)은 카탈로그에 영어로 적는다. `AGENTS.md` 본문이 영어이기 때문이다.
 - `proto/` 처럼 디스크 상태로 켜지는 옵션은 "(optional)" 로 항상 적는다. 옵션은 매니페스트에 없으므로 켜졌는지에 따라 행을 넣고 빼지 않는다.
+
+#### yjcli 영역과 사용자 영역
+
+- **yjcli 영역 = 블록 안**: `rules`·`skills`·`layout`. 패키지가 바뀌면 `yjcli update` 로 그대로 반영된다.
+- **사용자 영역 = 블록 밖**: Project, Project rules, Project-specific paths, Stack, Commands, Testing 등 사용자가 채우는 절. yjcli 는 처음 만들 때만 쓰고 다시 건드리지 않는다.
+- yjcli 가 정하는 규칙을 바꾸고 싶으면 블록 밖 `### Project rules` 에 덮어쓰는 규칙을 적는다 (블록 안을 고치면 다음 업데이트 때 되돌아간다).
 
 #### AGENTS.md 템플릿에서 함께 정리할 것
 
@@ -665,7 +674,17 @@ src/yjcli/data/
     yj-scheduler/SKILL.md
 ```
 
-### 5.6 스킬 검증 (테스트)
+### 5.6 프로젝트별 스킬 추가 규칙
+
+렌더링된 스킬은 `managed` 라서 직접 고치면 업데이트를 못 받는다. 대신 **덧붙일 규칙을 따로 적는다.**
+
+- 위치: `.yjcli/skills/<skill-id>.md` (예: `.yjcli/skills/yj-backend.md`). 사용자 소유, 커밋 대상.
+- 렌더링할 때 해당 스킬 끝에 `## Project-specific additions` 절로 붙인다. 고른 모든 LLM 의 스킬에 똑같이 들어간다.
+- 파일을 고치거나 지우면 다음 `yjcli update` 에서 스킬에 반영된다 (스킬은 그대로 managed 이므로 패키지 업데이트도 계속 받음).
+- 카탈로그에 없는 이름(오타)은 무시하고 경고한다.
+- 렌더링된 스킬을 직접 고친 경우 기존처럼 건너뛰고, 추가 규칙 파일을 쓰라는 안내를 함께 보여준다.
+
+### 5.7 스킬 검증 (테스트)
 
 - 모든 플랫폼의 `skills` 에 platform 스킬이 하나 이상 있고, 모두 카탈로그에 존재한다.
 - 모든 `routes` 의 첫 경로 조각이 카탈로그에 있는 플랫폼 id 다.
@@ -727,7 +746,8 @@ services = ["f1"]
 
 | 상황 | 동작 |
 |------|------|
-| 패키지가 새 버전 | `managed` 파일 갱신 (스킬 포함). `seed` 파일은 템플릿이 바뀌었으면 요약에 "템플릿 변경됨(적용 안 함)"으로만 알림 |
+| 패키지가 새 버전 | `managed` 파일 갱신 (스킬 포함), AGENTS.md 의 `rules`·`skills`·`layout` 블록 갱신. `seed` 파일은 템플릿이 바뀌었으면 요약에 "템플릿 변경됨(적용 안 함)"으로만 알림 |
+| 설치된 yjcli 가 매니페스트 버전보다 낮음 | **중단** (옛 내용으로 덮어쓰지 않음). `--force` 로만 진행. 로컬 개발 빌드(`0.0.0+local`)는 막지 않음 |
 | `managed` 파일을 사용자가 수정함 (해시 불일치) | 요약에 `!` 로 표시. 기본은 **건너뜀 + 경고**, `--force` 면 덮어씀 |
 | LLM 추가 | 해당 어댑터 파일 생성 + 그 `skills_dir` 에 스킬 렌더링. `AGENTS.md` 의 `yjcli:skills`·`yjcli:layout` 블록 다시 렌더링 |
 | LLM 제거 | 해당 어댑터의 `managed` 파일과 그 `skills_dir` 안의 yj 스킬 폴더 삭제. `seed` 와 사용자 스킬은 남기고 안내. `AGENTS.md` 블록 다시 렌더링 |
@@ -741,6 +761,29 @@ services = ["f1"]
 | 플랫폼 옵션(proto) 켜기/끄기 | yjcli 가 관여하지 않음. 사용자가 `proto/` 를 만들거나 지우면 builder 의 `steps/proto.sh` 가 알아서 따름 |
 
 삭제는 항상 요약에 펼쳐서 보여주며, `--yes` 를 써도 사용자가 수정한 파일은 삭제하지 않는다.
+
+### 6.4 패키지 업데이트 반영 흐름
+
+스킬이나 AGENTS.md 템플릿을 고쳤을 때 기존 저장소에 반영하는 방법:
+
+```
+yjcli 저장소에서 수정 → 버전 올려 배포
+        ↓
+각 프로젝트:  uv tool upgrade yjcli
+              yjcli status          # "새 버전이 설치되어 있습니다" 안내
+              yjcli update --diff   # 무엇이 바뀌는지 확인 (확인 후 적용)
+```
+
+| 바뀐 것 | `yjcli update` 결과 |
+|---------|---------------------|
+| 스킬 본문·공유 조각 | 모든 LLM 의 스킬이 다시 렌더링됨 (`.yjcli/skills/*.md` 추가 규칙은 유지) |
+| AGENTS.md 운영 규칙 | `yjcli:rules` 블록 갱신, 블록 밖 사용자 내용 유지 |
+| 스킬 라우팅·구조 표 | `yjcli:skills`·`yjcli:layout` 블록 갱신 |
+| runner/builder 공통 스크립트, Makefile | managed 이므로 갱신 (사용자가 고친 파일은 건너뜀) |
+| seed 템플릿 (env, build 스텁, Dockerfile 등) | 적용하지 않고 "템플릿 변경됨" 안내만 (§12 남은 과제) |
+
+- 배포 전에 개발 중인 소스로 시험하려면 `uv tool install -e <yjcli 경로>` 로 설치하고 `yjcli update --diff` 로 확인한다.
+- 계획 요약 첫 줄에 `yjcli 0.3.0 → 0.3.1` 처럼 버전 변화를 보여준다.
 
 ---
 
@@ -879,7 +922,7 @@ TTY 가 아니면 프롬프트 라이브러리를 아예 쓰지 않고 §3.2 의
 |------|------|-----------|
 | M1. 카탈로그 + 코어 | `catalog/` (9개 플랫폼, 옵션, 스킬 대응, LLM), `core/selection·planner·executor·render`. 코드 계획만 | Planner 단위 테스트 통과, `plan` 이 코드만 있는 신규 설치 계획을 출력 |
 | M2. 플러그인 | `catalog/plugins.py`, `data/plugins/{runner,secrets,builder}`, 스크립트 경로를 `tools/` 기준으로 수정, Makefile 조각 렌더링, AGENTS.md `yjcli:layout` 블록, 의존성 풀기 | 각 플러그인 단독·조합 설치 테스트 통과, `make backend NAME=a1` 이 `tools/secrets` 의 `RUN_COMMAND` 로 실행됨 |
-| M3. 스킬 재구성 | `yj-backend-service` 분리 → `yj-backend` / `yj-backend-ssr`, `yj-backend-msa` 경로 변경, `yj-arch-core` 에서 도구 규칙을 플러그인 조각으로 분리, `_shared/` 추출, description 정리, 자리표시 도입 | §5.6 검증 테스트 통과 |
+| M3. 스킬 재구성 | `yj-backend-service` 분리 → `yj-backend` / `yj-backend-ssr`, `yj-backend-msa` 경로 변경, `yj-arch-core` 에서 도구 규칙을 플러그인 조각으로 분리, `_shared/` 추출, description 정리, 자리표시 도입 | §5.7 검증 테스트 통과 |
 | M4. 매니페스트 | `manifest.toml` 읽기/쓰기, 파일 정책, 해시 기록 | 신규 설치 후 매니페스트 생성, `status` 동작 |
 | M5. 위저드 | `yjcli` 기본 진입, 플랫폼·플러그인 체크박스, 플랫폼별 이름 입력, 인자로 단계 건너뛰기, 요약/확인 | 대화형·비대화형 모두 E2E 테스트 통과. `backend: a1,a2` + `frontend: f1` 입력 시 `backend/a1`, `backend/a2`, `frontend/f1` 생성 |
 | M6. 업데이트 | diff 계산, 플랫폼·서비스·LLM·플러그인 추가/제거, 사용자 수정 감지, `--force` | §6.3 표의 각 행에 대한 테스트 |
@@ -896,7 +939,7 @@ M3(스킬)는 M1·M2 와 병행할 수 있다. 렌더러(`core/render.py`)만 �
 - **이름 파싱 테스트**: `a1,a2` · `a1 a2` · `a1, a2` · `a1,,a2` · 중복 · 예약어 · 잘못된 문자 (§2.3).
 - **플러그인 테스트**: 의존성 자동 추가/해제, 플러그인 추가 시 기존 서비스 전체에 파일 생성, 플러그인 제거 시 seed 보존, runner 실행(`RUN_COMMAND` 읽기, 환경값 전달), `.gitignore` 가 `tools/secrets/` 를 무시하지 않음.
 - **AGENTS.md 블록 테스트**: `yjcli:layout`·`yjcli:skills` 블록에 선택한 LLM·플랫폼·플러그인의 행만 있고, 블록 밖(사용자 표 등)은 업데이트 후에도 그대로다. 플러그인을 추가/제거하면 해당 행만 바뀐다.
-- **스킬 검증 테스트**: §5.6 항목.
+- **스킬 검증 테스트**: §5.7 항목.
 - **Executor 테스트**: 임시 디렉터리에 Plan을 적용한 뒤 결과 트리와 권한(`chmod +x`)을 확인한다.
 - **E2E (`scripts/e2e.sh`)**: 저장소 안 `sandbox/<case>/` (git 제외)에 실제로 `yjcli` 를 실행하고 결과 트리·내용·`make` 실행·git 무시 규칙까지 확인한다. 케이스는 실행 후 남겨 두어 직접 열어 볼 수 있다. 대화형 위저드도 키 입력(space, ←, 텍스트)을 주입해 끝까지 진행한다.
 
@@ -920,7 +963,10 @@ M3(스킬)는 M1·M2 와 병행할 수 있다. 렌더러(`core/render.py`)만 �
   | 16-agents-md-user-edits | 블록 밖 사용자 편집 보존 |
   | 17-wizard | 대화형 전체 흐름 (←, 최소 선택, 의존성 자동 체크, 빈 이름 재입력) |
   | 18-status-doctor | `status`·`doctor` |
-- **단위 테스트 (`tests/test_core.py`)**: 렌더러, 이름 파싱, 플러그인 의존성, 스킬 카탈로그 검증(§5.6), Planner(코드만 / seed 는 새 주인일 때만), 매니페스트 왕복.
+  | 19-update-propagation | 옛 패키지가 쓴 스킬·runner·AGENTS.md 규칙 블록을 `update` 가 갱신, `--diff` 출력, 블록 밖 사용자 편집 보존 |
+  | 20-skill-additions | `.yjcli/skills/<skill>.md` 가 모든 LLM 스킬에 덧붙음, 오타 경고, 직접 수정 시 안내, 삭제 시 제거 |
+  | 21-version-guard | 낮은 버전은 `update`·위저드·`service add` 모두 중단, `--force`, `status` 안내 |
+- **단위 테스트 (`tests/test_core.py`)**: 렌더러, 이름 파싱, 플러그인 의존성, 스킬 카탈로그 검증(§5.7), Planner(코드만 / seed 는 새 주인일 때만), 스킬 추가 규칙, AGENTS.md 블록, 버전 비교, 매니페스트 왕복.
 
 ---
 
@@ -964,3 +1010,11 @@ M3(스킬)는 M1·M2 와 병행할 수 있다. 렌더러(`core/render.py`)만 �
 | 비대화형 실행 | 누락 인자만 오류 | 확인 단계가 없으므로 `--yes` 또는 `--dry-run` 도 요구 |
 | `--name` 만 준 업데이트 | — | 기존 플랫폼에 더해짐. `--platform` 을 주면 그 목록이 전체 선택이 됨 |
 | 빌드 스텁 | `build-common.sh` 가 가드로 실패 | 공통 호스트(managed)는 스텝만 실행하고, 플랫폼별 `build-<env>.sh`(seed)가 구현 안내 후 실패 |
+| 스킬 교체 (`replaces`) | 카탈로그의 `replaces` 로 연결 | 매니페스트의 파일 기록으로 처리: 없어진 스킬의 managed 파일은 수정되지 않았으면 삭제 |
+
+### 남은 과제 (업데이트 검토에서 미룬 것)
+
+| 과제 | 내용 | 필요해지는 시점 |
+|------|------|-----------------|
+| seed 3-way 합치기 | seed 생성 시 템플릿을 `.yjcli/base/` 에 보관하고, 템플릿이 바뀌면 사용자 수정과 3-way 합치기(`git merge-file` 방식) | env·build 스텁·Dockerfile 템플릿 변경을 기존 저장소에도 따라가게 할 때 |
+| 카탈로그 마이그레이션 | 플랫폼·플러그인·LLM 의 `renamed`/`removed` 표, 매니페스트 schema 변환. 지금은 모르는 id 가 매니페스트에서 조용히 빠짐 | 다음에 카탈로그 id 를 바꿀 때 |

@@ -83,22 +83,41 @@ until you replace them.
 
 ## Updating
 
-Run `yjcli` again in a configured repo (it finds `.yjcli/manifest.toml`). The
-stored selection is the default; change what you need and confirm.
+### Pick up a new yjcli release
+
+When skills, AGENTS.md rules or managed scripts change in yjcli:
 
 ```bash
-yjcli -y                              # refresh managed files to the installed version
-yjcli --plugin runner,secrets,builder -y   # add the builder plugin
-yjcli service add -n backend=a3       # add services
-yjcli plan                            # show the plan only
-yjcli status                          # selection + managed files you edited
+uv tool upgrade yjcli
+yjcli status            # tells you a newer yjcli is installed
+yjcli update --diff     # review what changes, then confirm (or -y)
 ```
+
+`yjcli update` keeps your selection and only re-renders what yjcli owns. A yjcli
+that is **older** than the one that last wrote `.yjcli/manifest.toml` refuses to
+run (so teammates on old versions cannot roll files back); `--force` overrides.
+
+### Change the selection
+
+```bash
+yjcli                                      # wizard, stored selection as defaults
+yjcli --plugin runner,secrets,builder -y   # add the builder plugin
+yjcli service add -n backend=a3            # add services
+yjcli plan --diff                          # show the plan only
+```
+
+### What yjcli owns vs. what you own
 
 | File kind | On update |
 |-----------|-----------|
-| managed (`tools/runner/*`, `Makefile`, skills, `CLAUDE.md`, builder hosts/steps) | refreshed; skipped with a warning if you edited it (`--force` overwrites) |
-| seed (`AGENTS.md`, env files, build/deploy stubs, `Dockerfile`, settings) | created once when its owner is new; yours afterwards |
-| blocks (`AGENTS.md` `<!-- yjcli:… -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated |
+| managed (skills, `CLAUDE.md`, `tools/runner/*`, `Makefile`, builder hosts/steps) | refreshed; skipped with a warning if you edited it (`--force` overwrites) |
+| blocks (`AGENTS.md` `<!-- yjcli:rules/skills/layout -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated; everything outside is yours |
+| seed (`AGENTS.md` body, env files, build/deploy stubs, `Dockerfile`, settings) | created once when its owner is new; yours afterwards |
+
+Customize a skill without losing updates: write the extra rules in
+`.yjcli/skills/<skill>.md` (e.g. `.yjcli/skills/yj-backend.md`). yjcli appends
+them to that skill for every LLM on each render. Put project-wide agent rules
+under `### Project rules` in AGENTS.md (outside the blocks).
 
 yjcli never deletes services or files you own. Removing a plugin or LLM deletes
 only its managed files; your own skills in the skills folders are left alone.

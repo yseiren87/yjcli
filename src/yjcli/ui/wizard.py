@@ -71,6 +71,7 @@ def run_wizard(
     make_plan: Callable[[Draft], Plan],
     *,
     dry_run: bool = False,
+    diff_root=None,
 ) -> tuple[Draft, Plan]:
     """Fill the draft interactively and return it with the confirmed plan.
 
@@ -168,7 +169,7 @@ def run_wizard(
                 continue
             _header(console, draft, state, 4)
             plan = make_plan(draft)
-            print_summary(console, plan, draft, details=dry_run)
+            print_summary(console, plan, draft, details=dry_run, diff_root=diff_root)
             if dry_run:
                 return draft, plan
             while True:
@@ -177,7 +178,7 @@ def run_wizard(
                     [("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계"), ("cancel", "취소")],
                 )
                 if choice == "details":
-                    print_summary(console, plan, draft, details=True)
+                    print_summary(console, plan, draft, details=True, diff_root=state.root)
                     continue
                 break
             if choice == "apply":
