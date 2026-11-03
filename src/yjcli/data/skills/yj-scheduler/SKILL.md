@@ -6,13 +6,12 @@ description: >-
   scheduling framework from the project's ecosystem without prescribing a
   specific library. Covers job registration, execution isolation, overlap,
   misfires, timezones, retries, locks, observability, and graceful shutdown.
-  Do not use for backend/, backend-service/, frontend/, mobile-app/, pc-app/,
-  cli/, or browser-extension/.
+  Use only when editing {{self_routes}}.
 ---
 
 # yj-scheduler
 
-Requires `yj-arch-core`. Scope: **`scheduler/` only**.
+Requires `yj-arch-core`. Scope: {{self_routes}}.
 
 ## Purpose
 
@@ -28,7 +27,6 @@ Do not implement cron parsing, durable scheduling, misfire handling, or a
 
 ```text
 scheduler/
-  scripts/                     # platform-level only
   {scheduler_name}/            # one deployable scheduler process
     apps/                      # entry: boot, registration, wiring, shutdown
     services/
@@ -40,8 +38,8 @@ scheduler/
 - One scheduler process may register multiple related jobs.
 - Split jobs into separate `{scheduler_name}` deployables only when they need
   independent deployment, scaling, dependencies, permissions, or failure isolation.
-- Do not add per-job `scripts/` or Makefiles. Root `make scheduler` runs all
-  scheduler services; `NAME=<scheduler_name>` runs one.
+- Do not add per-job run scripts or Makefiles; running and building are the
+  repository tooling's job (see `yj-arch-core` › Tooling).
 - This is a long-running worker platform. `HOST` and `PORT` are optional and
   should exist only when the process exposes a real endpoint.
 
@@ -85,14 +83,14 @@ views/{job_name}/*.html | views/layouts/* | views/partials/*
 - flow (`services/{job_name}`) returns plain data / render context — never
   pre-rendered HTML. Rendering happens at the point of use (e.g. before
   sending an email), not scattered across `modules/`.
-- Template/asset bundling is wired the same way as other platforms:
-  `plugin-build-ssr.sh` auto-detects `{scheduler_name}/views/` and adds a
-  build guard for it. Implement the bundling there, not as an ad-hoc command.
+- Template/asset bundling is wired into the repository's build tooling, which
+  detects `{scheduler_name}/views/` (see `yj-arch-core` › Tooling). Implement
+  it there, not as an ad-hoc command.
 - If no job renders output, do **not** create `views/` speculatively.
 
 ## Contracts
 
-- Consume `backend/proto/dist/{lang}` (symlink) for MSA contracts when a job
+- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a job
   must call backend services directly; do not copy `.proto` sources into
   `scheduler/`.
 

@@ -1,0 +1,17 @@
+# Never bake env values into the image — tools/builder/steps/docker.sh injects
+# them via --build-arg from tools/secrets/<platform>/<service>/.env.<environment>.
+.env
+.env.*
+
+.git
+.gitignore
+*.log
+.DS_Store
+
+node_modules
+dist
+build
+
+__pycache__
+*.pyc
+.venv

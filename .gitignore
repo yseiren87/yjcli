@@ -4,8 +4,6 @@ venv/
 .env/
 .env.*
 !.env.examples
-# Packaged scaffold templates must ship env samples (still ignored in user repos).
-!src/yjcli/data/templates/**/.env.*
 
 # Python
 __pycache__/
@@ -38,3 +36,6 @@ Thumbs.db
 # Local tooling
 *.log
 .cache/
+
+# E2E sandbox (scripts/e2e.sh)
+sandbox/

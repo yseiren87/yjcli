@@ -1,22 +1,20 @@
 ---
 name: yj-browser-extension
 description: >-
-  Browser extension architecture (MV3, JS/TS). Use when editing
-  browser-extension/** except native_*/** paths. Covers background, content
+  Browser extension architecture (MV3, JS/TS). Covers background, content
   scripts, and popup/options as one extension service with multiple contexts.
-  For browser-extension/native_*/**, use yj-backend-service instead. Do not use
-  for frontend/, mobile-app/, pc-app/, backend/, backend-service/, or cli/.
+  Use only when editing {{self_routes}} other than native_*/** (those use
+  yj-backend).
 ---
 
 # yj-browser-extension
 
-Requires `yj-arch-core`. Scope: **`browser-extension/`** excluding **`native_*/`**.
+Requires `yj-arch-core`. Scope: {{self_routes}} excluding **`native_*/`**.
 
 ## Shape
 
 ```text
 browser-extension/
-  scripts/            # platform-level only
   {extension_name}/
     manifest.json
     src/
@@ -24,7 +22,7 @@ browser-extension/
       content/        # view/adapters per site
       popup/          # view
       lib/            # infra
-  native_{name}/      # NOT this skill → yj-backend-service
+  native_{name}/      # NOT this skill → yj-backend
 ```
 
 One `{extension_name}` = one extension service (multi-context, not microservices).
@@ -58,7 +56,7 @@ Feature rules and orchestration live in background flow — not in listeners/`ap
 
 ## Contracts
 
-- Consume `backend/proto/dist/{lang}` (symlink) only through a companion
+- Consume `backend-msa/proto/dist/{lang}` (symlink) only through a companion
   `native_*` host or a generated web client — do not copy `.proto` sources
   into `browser-extension/`. Browsers rarely speak gRPC directly; route
   through the native host or a REST/gRPC-web gateway instead.
@@ -66,8 +64,8 @@ Feature rules and orchestration live in background flow — not in listeners/`ap
 ## native_host
 
 - Folder name: `native_{name}/` under `browser-extension/`.
-- Architecture: **`yj-backend-service`** (single local process).
-- When editing `native_*`, do not apply extension UI rules; load `yj-backend-service`.
+- Architecture: **`yj-backend`** (single local process).
+- When editing `native_*`, do not apply extension UI rules; load `yj-backend`.
 - Extension ↔ host contract stays explicit (native messaging / local HTTP).
 
 ## Import direction
@@ -82,4 +80,4 @@ Forbidden: content↔content business coupling; UI calling privileged chrome API
 ## Editing scope
 
 - One `{extension_name}` context at a time when possible.
-- Companion host changes → switch to `yj-backend-service`.
+- Companion host changes → switch to `yj-backend`.

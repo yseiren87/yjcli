@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Run service(s) of one platform (yjcli runner plugin).
+# Always loads tools/secrets/<platform>/<service>/.env.local-dev (never
+# development/production). The service owns RUN_COMMAND there; this runner does
+# not infer a language/runtime.
+# Usage:
+#   tools/runner/run.sh <platform>                     # all services concurrently
+#   tools/runner/run.sh <platform> <service> [args...]
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+SECRETS_DIR="$ROOT_DIR/tools/secrets"
+
+if [ "${#}" -lt 1 ] || [ -z "${1:-}" ]; then
+  echo "usage: $0 <platform> [service] [args...]"
+  exit 1
+fi
+
+PLATFORM="$1"
+shift
+PLATFORM_DIR="$ROOT_DIR/$PLATFORM"
+
+if [ ! -d "$PLATFORM_DIR" ]; then
+  echo "unknown platform: $PLATFORM (expected $PLATFORM_DIR)"
+  exit 1
+fi
+
+list_services() {
+  local d name
+  for d in "$PLATFORM_DIR"/*/ ; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    case "$name" in
+      proto) continue ;;
+    esac
+    printf '%s\n' "$name"
+  done | sort
+}
+
+kill_by_port() {
+  local port="$1"
+  local pids=""
+  if command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+    return 0
+  fi
+  if [ -n "$pids" ]; then
+    echo "stopping listeners on port $port: $pids"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+    sleep 0.3
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+  fi
+}
+
+kill_by_pidfile() {
+  local pid_file="$1"
+  if [ ! -f "$pid_file" ]; then
+    return 0
+  fi
+  local old_pid
+  old_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    echo "stopping pid $old_pid from $pid_file"
+    kill "$old_pid" 2>/dev/null || true
+    sleep 0.3
+    kill -9 "$old_pid" 2>/dev/null || true
+  fi
+  rm -f "$pid_file"
+}
+
+run_one() {
+  local NAME="$1"
+  shift || true
+  case "$NAME" in
+    proto)
+      echo "reserved name: $NAME"
+      return 1
+      ;;
+  esac
+
+  local SERVICE_DIR="$PLATFORM_DIR/$NAME"
+  local ENV_FILE="$SECRETS_DIR/$PLATFORM/$NAME/.env.local-dev"
+  local PID_FILE="$SERVICE_DIR/.run.pid"
+
+  if [ ! -d "$SERVICE_DIR" ]; then
+    echo "unknown service: $NAME (expected $SERVICE_DIR)"
+    return 1
+  fi
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "missing $ENV_FILE (local run always uses .env.local-dev)"
+    return 1
+  fi
+
+  # Load KEY=VALUE from .env.local-dev (ignore comments/blank lines).
+  # macOS ships Bash 3.2: `source <(…)` (process substitution) does not apply
+  # assignments into the current shell — PORT/HOST stay empty. Use a temp file.
+  local env_tmp
+  env_tmp="$(mktemp "${TMPDIR:-/tmp}/yjcli-env.XXXXXX")" || return 1
+  grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" >"$env_tmp" || true
+  set -a
+  # shellcheck disable=SC1090
+  # shellcheck disable=SC1091
+  . "$env_tmp"
+  set +a
+  rm -f "$env_tmp"
+
+  echo "[$NAME] env: $ENV_FILE"
+  if [ -n "${PORT:-}" ]; then
+    kill_by_port "$PORT"
+  else
+    echo "[$NAME] PORT unset in .env.local-dev; using pidfile fallback"
+  fi
+  kill_by_pidfile "$PID_FILE"
+
+  start_and_track() {
+    # Give the repository command its own process group. Killing only the
+    # wrapper PID leaves descendants (for example npm -> node) running.
+    set -m
+    "$@" &
+    local pid=$!
+    set +m
+    echo "$pid" >"$PID_FILE"
+    echo "[$NAME] started pid $pid (tracked in $PID_FILE)"
+    stop_command() {
+      trap - INT TERM
+      kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$PID_FILE"
+      exit 130
+    }
+    trap stop_command INT TERM
+    local code=0
+    wait "$pid" || code=$?
+    rm -f "$PID_FILE"
+    exit "$code"
+  }
+
+  if [ -z "${RUN_COMMAND:-}" ]; then
+    echo "[$NAME] RUN_COMMAND is unset in $ENV_FILE"
+    echo "Declare the service-owned local command, for example: RUN_COMMAND=\"your-command --flag\""
+    return 1
+  fi
+
+  cd "$SERVICE_DIR"
+  echo "[$NAME] command: $RUN_COMMAND"
+  # RUN_COMMAND is trusted, repository-owned configuration. Execute it through
+  # the platform shell so one contract works for any repository-selected tool.
+  # Extra arguments supplied after the service name are appended as "$@".
+  start_and_track bash -c "$RUN_COMMAND \"\$@\"" yjcli-run "$@"
+}
+
+run_all() {
+  local -a services=()
+  local line name
+  while IFS= read -r line; do
+    [ -n "$line" ] && services+=("$line")
+  done < <(list_services)
+
+  if [ "${#services[@]}" -eq 0 ]; then
+    echo "no services under $PLATFORM_DIR (run: yjcli service add)"
+    exit 1
+  fi
+
+  echo "starting ${#services[@]} service(s) concurrently: ${services[*]}"
+  local -a pids=()
+  for name in "${services[@]}"; do
+    ( run_one "$name" ) &
+    pids+=($!)
+  done
+
+  cleanup() {
+    trap - INT TERM
+    local p
+    for p in "${pids[@]}"; do
+      kill -TERM "$p" 2>/dev/null || true
+    done
+    for p in "${pids[@]}"; do
+      wait "$p" 2>/dev/null || true
+    done
+    exit 130
+  }
+  trap cleanup INT TERM
+
+  local fail=0
+  local p
+  for p in "${pids[@]}"; do
+    if ! wait "$p"; then
+      fail=1
+    fi
+  done
+  exit "$fail"
+}
+
+if [ "${#}" -lt 1 ] || [ -z "${1:-}" ]; then
+  run_all
+fi
+
+NAME="$1"
+shift
+run_one "$NAME" "$@"

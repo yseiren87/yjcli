@@ -1,16 +1,14 @@
 ---
 name: yj-pc-app
 description: >-
-  Single Electron desktop app architecture. Use only when editing pc-app/**.
-  Stack may resemble frontend (React/TS) in the renderer, but process split
-  (main/preload/renderer) is mandatory and different from frontend/. Do not use
-  for frontend/, mobile-app/, backend/, backend-service/, cli/, or
-  browser-extension/.
+  Single Electron desktop app architecture. Stack may resemble a web frontend
+  (React/TS) in the renderer, but the process split (main/preload/renderer) is
+  mandatory and different. Use only when editing {{self_routes}}.
 ---
 
 # yj-pc-app
 
-Requires `yj-arch-core`. Scope: **`pc-app/` only**.
+Requires `yj-arch-core`. Scope: {{self_routes}}.
 
 Stack: **Electron** + TypeScript; renderer typically React + react-router (same UI stack family as frontend, different architecture).
 
@@ -18,7 +16,6 @@ Stack: **Electron** + TypeScript; renderer typically React + react-router (same 
 
 ```text
 pc-app/
-  scripts/         # platform-level only
   {app_name}/
     main/          # privileged process (backend-like)
     preload/       # bridge only
@@ -71,7 +68,7 @@ Missing main domain ≠ put logic in entry; keep orchestration in `main/services
 ## Contracts
 
 - Prefer local ipc contract types shared carefully inside the app.
-- If a future lang/client can consume `backend/proto/dist/{lang}`, symlink that dist — do not copy proto sources. Electron renderer often will not use gRPC stubs directly; do not force it.
+- If a future lang/client can consume `backend-msa/proto/dist/{lang}`, symlink that dist — do not copy proto sources. Electron renderer often will not use gRPC stubs directly; do not force it.
 
 ## Environment gotchas
 

@@ -1,16 +1,22 @@
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Env files (yj-arch-core): required .env.local-dev plus optional .env.<environment> files.
+// Env values (yj-arch-core): this app keeps only .env.examples. When the secrets
+// tooling is installed, values live in tools/secrets/frontend/<app>/.env.<mode>;
+// tools/runner also exports .env.local-dev into process.env before RUN_COMMAND.
 // Loaded via Vite --mode (no plain .env).
-// Platform run.* always exports values from .env.local-dev before RUN_COMMAND.
+const secretsDir = resolve(__dirname, "../../tools/secrets/frontend", basename(__dirname));
+const envDir = existsSync(secretsDir) ? secretsDir : __dirname;
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  const env = loadEnv(mode, envDir, "");
   const host = env.HOST || "127.0.0.1";
   const port = Number(env.PORT || "5173");
 
   return {
+    envDir,
     plugins: [react()],
     define: {
       __APP_NAME__: JSON.stringify(env.NAME ?? ""),

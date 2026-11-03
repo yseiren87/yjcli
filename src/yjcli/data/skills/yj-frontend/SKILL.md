@@ -2,14 +2,13 @@
 name: yj-frontend
 description: >-
   Single frontend app architecture. Required stack: Vite + React + TypeScript +
-  react-router. Use only when editing frontend/**. Feature-level flow/view
-  separation; no domain folder by default. No plain .env. Do not use for
-  mobile-app/, pc-app/, backend/, backend-service/, cli/, or browser-extension/.
+  react-router. Feature-level flow/view separation; no domain folder by
+  default. No plain .env. Use only when editing {{self_routes}}.
 ---
 
 # yj-frontend
 
-Requires `yj-arch-core`. Scope: **`frontend/` only**.
+Requires `yj-arch-core`. Scope: {{self_routes}}.
 
 ## Required stack
 
@@ -20,7 +19,6 @@ Do not scaffold CRA, Next.js, Webpack-only, or non-Vite bundlers unless the user
 
 ```text
 frontend/
-  scripts/                 # platform-level only
   {app_name}/
     src/
       main.tsx, App.tsx          # entry
@@ -61,7 +59,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 - Container route wires store + router; presentational page takes props only.
 - Routes declared at entry — do not scatter route tables; entry stays registration-thin.
 - Generated UI primitives: do not hand-edit or duplicate.
-- Consume backend contracts via generated client or `backend/proto/dist/{lang}` — never copy `.proto` into frontend.
+- Consume backend contracts via generated client or `backend-msa/proto/dist/{lang}` — never copy `.proto` into frontend.
 
 ## Optional: server templating (SSR)
 
@@ -75,9 +73,9 @@ When enabled, add sibling to `src/`:
 views/{page}.html | views/layouts/* | views/partials/*
 ```
 
-- Template/asset bundling is wired the same way as other platforms:
-  `plugin-build-ssr.sh` auto-detects `{app_name}/views/` and adds a build
-  guard for it. Implement the bundling there, not as an ad-hoc one-off command.
+- Template/asset bundling is wired into the repository's build tooling, which
+  detects `{app_name}/views/` (see `yj-arch-core` › Tooling). Implement it
+  there, not as an ad-hoc one-off command.
 - Keep `src/` (client bundle) and `views/` (server-rendered templates)
   separate; do not fold template markup into `pages/`/`components/`.
 - Do **not** create `views/` speculatively — it does not apply to a normal

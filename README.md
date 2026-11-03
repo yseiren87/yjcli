@@ -1,205 +1,115 @@
 # yjcli
 
-CLI that scaffolds YJ platform folders, services, and AI agent wiring
-(Cursor, Claude Code, Codex).
+Wizard that scaffolds YJ-architecture repositories: platform code folders,
+services, tooling plugins, and AI agent wiring (Cursor, Claude Code, Codex).
 
-Templates, skills, and root make files ship inside the package and are **copied**
-into the target repo. Standing agent guidance lives in **`AGENTS.md`** only
-(`CLAUDE.md` is a mirror).
+Run `yjcli` with no arguments and it walks you through a checklist. Nothing is
+written until you confirm the plan at the end. Every step can also be answered
+with a command-line argument, which skips that step.
 
 ## Install
 
 ```bash
 uv tool install yjcli
-# pin a version:
-uv tool install yjcli==0.0.5
-
 yjcli --version
-yjcli -h
-```
-
-Upgrade / remove:
-
-```bash
 uv tool upgrade yjcli
-uv tool uninstall yjcli
 ```
 
 ## Quick start
 
 ```bash
-uv tool install yjcli
 cd /path/to/your-repo
-yjcli init --all
-yjcli service add -p backend -n api
-# edit AGENTS.md, then:
-yjcli sync agents
-
-make backend                 # start all backend services
-make backend NAME=api        # start one service
+yjcli                                   # interactive wizard
 ```
+
+```text
+  ✔ 1. LLM 대상     Cursor, Claude Code
+  ✔ 2. 플랫폼       backend, frontend
+  ✔ 3. 플러그인     runner, secrets
+  ▸ 4. 서비스 이름  (1/2) backend
+  ○ 5. 확인 및 실행
+
+? backend 서비스 이름 (공백 또는 , 로 구분): a1, a2
+  → backend/a1, backend/a2
+```
+
+The same thing without prompts:
+
+```bash
+yjcli -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,secrets -y
+```
+
+## Steps
+
+| # | Step | Argument | Notes |
+|---|------|----------|-------|
+| 1 | LLM targets | `-l/--llm cursor,claude,codex` · `all` | Multi-select (space toggles `[x]`) |
+| 2 | Platforms | `-p/--platform …` · `all` | Multi-select |
+| 3 | Plugins | `--plugin runner,secrets,builder` · `all` · `none` | Required plugins are added automatically |
+| 4 | Service names | `-n/--name <platform>=a1,a2` (repeatable) | One screen per platform; split names with spaces or commas. `-n` alone also selects the platform |
+| — | Platform options | `-o/--option backend=proto` | Asked right after the names of a new platform |
+| 5 | Confirm | `-y/--yes` · `--dry-run` | Non-interactive runs need `--yes` or `--dry-run` |
+
+`←` goes back one screen. Skills are not asked for — they follow the platforms.
 
 ## Platforms
 
-Use with `-t` / `--type` (repeatable on `init` / `platform add`):
+Platforms hold **code only**: service folders, stack files and `.env.examples`.
 
-`backend` · `backend-service` · `frontend` · `mobile-app` · `pc-app` · `cli` · `browser-extension` · `scheduler`
+| Platform | What | Skill |
+|----------|------|-------|
+| `backend` | single backend (API); optional `proto` | `yj-backend` |
+| `backend-msa` | gRPC microservices; `proto/` always | `yj-backend-msa` |
+| `backend-ssr` | server-rendered backend; `views/` always; optional `proto` | `yj-backend-ssr` |
+| `frontend` | Vite + React + TS | `yj-frontend` |
+| `mobile-app` | Flutter | `yj-mobile-app` |
+| `pc-app` | Electron | `yj-pc-app` |
+| `cli` | CLI apps | `yj-cli` |
+| `browser-extension` | MV3; `native_*` services are native hosts | `yj-browser-extension` + `yj-backend` |
+| `scheduler` | periodic batch jobs | `yj-scheduler` |
 
-## What `init` creates
+## Plugins (repository tooling under `tools/`)
 
-- `AGENTS.md`, `CLAUDE.md` (mirror of `AGENTS.md`)
-- Skills under `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` (Codex)
-- Claude `settings.json`
-- Root `Makefile`, `make.bat`, `TOOLS.md`, `.gitignore`
-- `Diff.md` — user-maintained architecture difference and manual restoration notes
-- Selected platform roots with `scripts/run.*` and development/production build/deploy templates
+| Plugin | Installs | Requires |
+|--------|----------|----------|
+| `runner` | `tools/runner/run.{sh,bat,ps1}`, root `Makefile` / `make.bat` → `make <platform> [NAME=<service>]` | `secrets` |
+| `secrets` | `tools/secrets/<platform>/<service>/.env.{local-dev,development,production}` — **committed in plain text** (private repos only) | — |
+| `builder` | `tools/builder/` (build/deploy hosts, `steps/{proto,ssr,docker}.sh`, per-platform stubs), `Dockerfile` for deployable services → `make <platform>-build-<env>` / `-deploy-<env>` | `secrets` |
 
-The root `Makefile` / `make.bat` wires platform run, build, and deploy entry points.
-Build/deploy templates print the exact file to implement and fail until the project
-supplies its build/package and upload logic. They remain platform-level; do not add
-per-service `scripts/` directories or per-service Makefiles.
+Each service declares its local command as `RUN_COMMAND` in
+`tools/secrets/<platform>/<service>/.env.local-dev`; the runner exports that file
+and runs it. Generated build/deploy stubs fail with an implementation prompt
+until you replace them.
 
-`run.*` ships as `.sh` + `.bat` + `.ps1` since local dev runs natively per platform.
-`build-*` and `deploy-*` ship as `.sh` only — build/deploy tooling (Docker, etc.) is
-not native to Windows, so `make.bat` runs those targets through WSL; macOS/Linux use
-the shell script directly.
+## Updating
 
-`build-common.sh` is the same file for every platform and is a thin plugin host:
-it runs every `scripts/plugin-build-*.sh` file present, then falls through to its
-own generic build guard. The `build` segment names the consumer (a deploy-side
-plugin would be `plugin-deploy-*.sh` instead). Each plugin is its own file —
-visible in `scripts/`, and runnable standalone — and self-detects whether it
-applies by folder presence, not a platform-name check, so any platform can opt in.
-
-- `plugin-build-proto.sh` → protoc codegen guard when `<platform>/proto/` exists.
-  `backend` always has this (fixed gRPC MSA root, see `yj-backend-msa`); any other
-  platform (including `backend-service`) gets the same guard only if it creates
-  `proto/` too. protoc is the standard; buf is not used.
-- `plugin-build-ssr.sh` → template/asset build guard when
-  `<platform>/{service}/views/` exists, checked per service. Any platform's
-  service can opt in by creating `views/`.
-- `plugin-build-docker.sh` → docker image **build only** (no push, no
-  swarm/stack rollout — that belongs in a deploy-side plugin) guard, per
-  service that has a `Dockerfile` (delete it to opt that service out). Builds
-  always use `.env.development` or `.env.production` depending on which
-  environment is targeted. The image version comes from the service's
-  `package.json`/`pyproject.toml` `version` field when present, otherwise the
-  `VERSION` env var — set it for languages with no package-manifest version
-  field.
-
-None of these plugins imply each other, and using gRPC in `backend-service` does
-not make it MSA — see `yj-backend-msa` / `yj-backend-service` for what each
-option chapter actually changes.
-
-- `yjcli service add` adds `Dockerfile` + `.dockerignore` to new services under
-  deployable platforms (`backend`, `backend-service`, `frontend`, `scheduler`);
-  `cli`/`mobile-app`/`pc-app`/`browser-extension` are local/client artifacts, not
-  docker-swarm services, so they don't get one. The Dockerfile is
-  language-agnostic and intentionally has no `FROM` yet — `docker build` fails
-  until it's replaced, matching every other generated build/deploy stub.
-
-`deploy-common.sh` is the same kind of plugin host for the deploy side: after
-calling the matching build script, it runs every `scripts/plugin-deploy-*.sh`
-file present (none ship by default — pushing an image, `docker stack deploy`,
-`kubectl apply`, etc. are deploy-side plugins the project adds). `deploy-development.sh`
-/ `deploy-production.sh` call `deploy-common.sh` and then own their own
-upload/rollout guidance only.
-
-`Diff.md` is created only when missing, including with `init --force`. yjcli never
-reads, updates, overwrites, or uses it for automatic restoration during sync or
-migration.
-
-Operating rules (skill routing, output discipline) are in `AGENTS.md` — not in
-`.cursor/rules` / `.claude/rules`.
-
-## Run (`make`)
-
-Platform targets are discovered from `*/scripts/run.sh` (after `init` / `platform add`).
-Each service declares its local command as `RUN_COMMAND` in `.env.local-dev`.
-New services include `.env.local-dev`, `.env.development`, `.env.production`, and
-`.env.examples`. Only `.env.local-dev` and `.env.examples` are required;
-development/production may be removed and other `.env.<environment>` files may
-be added. Commit `.env.examples` only.
-The platform runner executes that repository-owned declaration instead of
-inferring npm, uv, Go, or another language/runtime from project manifests.
+Run `yjcli` again in a configured repo (it finds `.yjcli/manifest.toml`). The
+stored selection is the default; change what you need and confirm.
 
 ```bash
-make <platform>                 # all services under that platform (concurrent)
-make <platform> NAME=<service>  # one service
-make <platform>-build-development  [NAME=<service>]
-make <platform>-build-production   [NAME=<service>]
-make <platform>-deploy-development [NAME=<service>]
-make <platform>-deploy-production  [NAME=<service>]
-make help
+yjcli -y                              # refresh managed files to the installed version
+yjcli --plugin runner,secrets,builder -y   # add the builder plugin
+yjcli service add -n backend=a3       # add services
+yjcli plan                            # show the plan only
+yjcli status                          # selection + managed files you edited
 ```
 
-## Sync
+| File kind | On update |
+|-----------|-----------|
+| managed (`tools/runner/*`, `Makefile`, skills, `CLAUDE.md`, builder hosts/steps) | refreshed; skipped with a warning if you edited it (`--force` overwrites) |
+| seed (`AGENTS.md`, env files, build/deploy stubs, `Dockerfile`, settings) | created once when its owner is new; yours afterwards |
+| blocks (`AGENTS.md` `<!-- yjcli:… -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated |
 
-| Command | When |
-|---------|------|
-| `yjcli sync agents` | After editing `AGENTS.md` — refreshes `CLAUDE.md` |
-| `yjcli sync skills` | Refresh packaged skills (Cursor / Claude / Codex) |
-| `yjcli sync make` | Overwrite root make/run files; install missing build/deploy scripts while preserving implemented ones |
-| `yjcli sync all` | Soft upgrade — mirror CLAUDE + skills + make (**keeps** your `AGENTS.md`) |
-| `yjcli sync migrate -y` | **Hard** upgrade — package template overwrites `AGENTS.md`, wipes skills dirs, drops legacy rules/`.agent`, refreshes settings/TOOLS/gitignore/make |
+yjcli never deletes services or files you own. Removing a plugin or LLM deletes
+only its managed files; your own skills in the skills folders are left alone.
 
-Edit `AGENTS.md` only; do not edit `CLAUDE.md` by hand. Use `migrate` when upgrading from older yjcli layouts (rules era).
-
-## Options
-
-- `--type` / `-t` — platform type (`backend`, `frontend`, …) on `init` / `platform add`.
-- `--platform` / `-p` — existing platform root on `service add`.
-- `--name` / `-n` — service/app name on `service add`.
-- `--path <dir>` — target repo root (default: current directory).
-- `--force` / `-f` — overwrite existing root/agent files without prompting (`init` only).
-
-## Notes
-
-- `platform add` creates platform roots and their run/deploy scripts (no services, skills, or root Makefile).
-- `service add` needs the platform root first (`init` or `platform add`).
-- Non-interactive: pass `-t` / `--all` / `-p` / `-n` as needed, and pass
-  `--yes` for every `sync` command.
-- `doctor` checks the **installed package** assets, not your target repo.
-- `sync skills` / `sync all` remove legacy `.cursor/rules` and `.claude/rules` if present.
-- `sync migrate` also overwrites `AGENTS.md` from the package (destructive).
-
-## Commands
+## Development
 
 ```bash
-yjcli init
-yjcli init --all
-yjcli init -t backend -t frontend
-yjcli init --force
-
-yjcli platform add
-yjcli platform add --all
-yjcli platform add -t cli
-yjcli platform add -t scheduler
-
-yjcli service add
-yjcli service add -p backend -n api
-yjcli service add -p scheduler -n operations
-
-yjcli sync agents
-yjcli sync skills
-yjcli sync make
-yjcli sync all
-yjcli sync migrate --yes
-yjcli doctor
+uv sync
+uv run python -m unittest discover -s tests   # unit tests
+scripts/e2e.sh                                 # end-to-end scenarios into ./sandbox
+scripts/e2e.sh -k wizard -v                    # one case, with output on failure
 ```
 
-<!-- BENCH:START -->
-
-## Research: token & exploration
-
-Not measured yet.
-
-From the workspace root (sibling of this package), with `CURSOR_API_KEY` in `tools/.env`:
-
-```bash
-make bench                 # Cursor SDK: prepare → trials → report → this section
-```
-
-See `bench/README.md`.
-
-<!-- BENCH:END -->
+Design notes: [`docs/redesign.md`](docs/redesign.md).

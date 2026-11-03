@@ -1,15 +1,14 @@
 ---
 name: yj-mobile-app
 description: >-
-  Single mobile app architecture (Flutter). Use only when editing mobile-app/**.
-  Same base architecture as frontend (entry/flow/view/infra, no domain by
-  default) with Flutter/Dart primitives. Do not use for frontend/, pc-app/,
-  backend/, backend-service/, cli/, or browser-extension/.
+  Single mobile app architecture (Flutter). Same base architecture as a web
+  frontend (entry/flow/view/infra, no domain by default) with Flutter/Dart
+  primitives. Use only when editing {{self_routes}}.
 ---
 
 # yj-mobile-app
 
-Requires `yj-arch-core`. Scope: **`mobile-app/` only**.
+Requires `yj-arch-core`. Scope: {{self_routes}}.
 
 Stack: **Flutter (Dart)** + the repo's router/state choices (e.g. go_router, riverpod).
 
@@ -17,7 +16,6 @@ Stack: **Flutter (Dart)** + the repo's router/state choices (e.g. go_router, riv
 
 ```text
 mobile-app/
-  scripts/                   # platform-level only
   {app_name}/
     lib/
       main.dart, router.dart       # entry
@@ -62,7 +60,7 @@ Missing domain ≠ put feature logic in `main.dart` / router registration.
   `api/`; do not add a redundant `{feature}/` directory for a single file.
 - Container screen watches providers and passes plain props to presentational widgets.
 - Routes declared at entry (thin); feature work stays in providers/api.
-- Prefer symlink/consume `backend/proto/dist/dart` for MSA contracts when present. Do not copy `.proto` into the app.
+- Prefer symlink/consume `backend-msa/proto/dist/dart` for MSA contracts when present. Do not copy `.proto` into the app.
 
 ## Import direction
 

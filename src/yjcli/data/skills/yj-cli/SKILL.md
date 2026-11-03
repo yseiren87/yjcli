@@ -1,22 +1,19 @@
 ---
 name: yj-cli
 description: >-
-  Single CLI application architecture, language-agnostic. Use only when editing
-  cli/**. Commands are routes; optional domains for owned concepts (local
-  persistence and/or shared policy), not persistence-only. Do not use for
-  backend/, backend-service/, frontend/, mobile-app/, pc-app/, or
-  browser-extension/.
+  Single CLI application architecture, language-agnostic. Commands are routes;
+  optional domains for owned concepts (local persistence and/or shared policy),
+  not persistence-only. Use only when editing {{self_routes}}.
 ---
 
 # yj-cli
 
-Requires `yj-arch-core`. Scope: **`cli/` only**.
+Requires `yj-arch-core`. Scope: {{self_routes}}.
 
 ## Shape
 
 ```text
 cli/
-  scripts/       # platform-level only
   {app_name}/
     apps/        # entry — command tree
     services/    # flow
@@ -65,7 +62,7 @@ infra  = modules/{module}.{ext} # config, http, db, output formatters
 
 ## Contracts
 
-- Consume `backend/proto/dist/{lang}` (symlink) for MSA contracts when a
+- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a
   command must call backend services directly; do not copy `.proto` sources
   into `cli/`.
 
@@ -84,4 +81,4 @@ Forbidden: command→domain/db/http directly; service→stdout/argv; cross-platf
 ## Editing scope
 
 - `cli/{app_name}/` only.
-- Native messaging hosts that belong to extensions live under `browser-extension/native_*` and use `yj-backend-service`, not this skill — unless the user places a pure CLI under `cli/`.
+- Native messaging hosts that belong to extensions live under `browser-extension/native_*` and use `yj-backend`, not this skill — unless the user places a pure CLI under `cli/`.
