@@ -122,6 +122,43 @@ under `### Project rules` in AGENTS.md (outside the blocks).
 yjcli never deletes services or files you own. Removing a plugin or LLM deletes
 only its managed files; your own skills in the skills folders are left alone.
 
+## Rebuilding a repo made with yjcli 0.2.x
+
+There is no automatic migration. Remove what 0.2.x generated and set the repo up
+again with 0.3; service source code stays where it is. Work on a new branch.
+
+1. **Back up env values.** 0.2.x kept `.env.local-dev` / `.env.development` /
+   `.env.production` inside each service and git does not track them:
+   `find . -name node_modules -prune -o -type f -name '.env.*' ! -name '.env.examples' -print0 | tar --null -czf ~/env-backup.tgz -T -`
+   Also copy `AGENTS.md` aside — you will move your own notes back later.
+2. **Rename platforms** (in this order):
+   `git mv backend backend-msa`, then move each `backend-service/<svc>` to
+   `backend-ssr/<svc>` if it has `views/`, otherwise to `backend/<svc>`.
+3. **Move env values** (when using the `secrets` plugin): every
+   `<platform>/<service>/.env.*` except `.env.examples` →
+   `tools/secrets/<platform>/<service>/`. yjcli never overwrites existing value
+   files, so your real values (including `RUN_COMMAND`) are kept.
+4. **Delete the 0.2.x output:** `*/scripts/`, `Makefile`, `make.bat`, `TOOLS.md`,
+   `Diff.md`, `CLAUDE.md`, `AGENTS.md`, the `yj-*` folders in
+   `.cursor/skills`, `.claude/skills`, `.agents/skills` (keep your own skills),
+   and any `Dockerfile`, `.dockerignore`, `.gitignore` you never edited (0.3
+   regenerates them; edited ones are kept as they are).
+5. **Apply 0.3** with the platforms that now exist (services are picked up from
+   their folders):
+   `yjcli start -l claude -p backend-msa,backend,frontend --plugin runner,secrets --dry-run`,
+   then the same with `-y`.
+6. **Move your own content back:** project values from the old `AGENTS.md` go
+   outside the `<!-- yjcli:… -->` blocks; build/deploy logic you wrote in
+   `<platform>/scripts/build-*.sh` / `deploy-*.sh` goes to
+   `tools/builder/<platform>/` (paths now use `$ROOT_DIR/$PLATFORM` and
+   `tools/secrets/…`); existing frontend apps' `vite.config.ts` should load env
+   from `tools/secrets/frontend/<app>/` (`envDir`).
+7. **Fix old paths** in code, CI and symlinks: `backend/proto` →
+   `backend-msa/proto`, `backend-service/…`, `<platform>/scripts/…`.
+8. **Check:** `yjcli update --dry-run` reports no changes, `make <platform>
+   NAME=<service>` runs, and `tools/secrets/` is tracked by git (private repos
+   only) before you commit.
+
 ## Development
 
 ```bash
@@ -149,5 +186,3 @@ Tags follow `release/X.Y.Z`. Tokens go in `.env.release` (git-ignored):
 UV_PUBLISH_TOKEN=pypi-...       # required
 GITHUB_TOKEN=github_pat_...     # optional, used only for git push
 ```
-
-Design notes: [`docs/redesign.md`](docs/redesign.md).
