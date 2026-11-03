@@ -1,4 +1,4 @@
-"""Entry: `yjcli` runs the wizard; arguments answer its steps in advance."""
+"""Entry: `yjcli` shows help; `yjcli start` runs the wizard (arguments answer its steps)."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ PathOpt = Annotated[
 
 app = typer.Typer(
     name="yjcli",
-    help="YJ 아키텍처 저장소 구성 도구. 인자 없이 실행하면 단계별 위저드가 열립니다.",
+    help="YJ 아키텍처 저장소 구성 도구. `yjcli start` 로 단계별 위저드를 시작합니다.",
     context_settings={"help_option_names": ["-h", "--help"]},
     add_completion=False,
 )
@@ -155,6 +155,19 @@ def _version_callback(value: bool) -> None:
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
+    version_: Annotated[
+        Optional[bool],
+        typer.Option("--version", "-V", help="버전 출력", callback=_version_callback, is_eager=True),
+    ] = None,
+) -> None:
+    """YJ 아키텍처 저장소 구성 도구."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+
+@app.command("start")
+def start(
     llm: LlmOpt = None,
     platform: PlatformOpt = None,
     plugin: PluginOpt = None,
@@ -166,14 +179,8 @@ def main(
     force: ForceOpt = False,
     diff: DiffOpt = False,
     path: PathOpt = Path("."),
-    version_: Annotated[
-        Optional[bool],
-        typer.Option("--version", "-V", help="버전 출력", callback=_version_callback, is_eager=True),
-    ] = None,
 ) -> None:
-    """새 저장소 구성 또는 기존 구성 업데이트 (위저드)."""
-    if ctx.invoked_subcommand is not None:
-        return
+    """위저드 시작: 새 저장소 구성 또는 기존 구성 변경 (인자로 단계를 미리 답할 수 있음)."""
     run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
         yes=yes, dry_run=dry_run, force=force, diff=diff)
 
@@ -190,7 +197,7 @@ def update(
 
     def prepare(draft: Draft, state) -> None:
         if not state.manifest:
-            _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli` 로 구성하세요"])
+            _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli start` 로 구성하세요"])
         draft.given |= {"llms", "platforms", "plugins"}
         draft.given |= {f"names:{p}" for p in state.manifest.platforms}
 
@@ -226,10 +233,10 @@ def service_add(
 
     def prepare(draft: Draft, state) -> None:
         if not state.manifest:
-            _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli` 로 구성하세요"])
+            _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli start` 로 구성하세요"])
         unknown = [p for p in draft.names if p not in state.manifest.platforms]
         if unknown:
-            _fail([f"구성되지 않은 플랫폼: {', '.join(unknown)} (플랫폼 추가는 `yjcli`)"])
+            _fail([f"구성되지 않은 플랫폼: {', '.join(unknown)} (플랫폼 추가는 `yjcli start`)"])
         draft.platforms = list(state.manifest.platforms)
         draft.given |= {"llms", "platforms", "plugins"}
         if not _interactive() and not any(draft.names.values()):

@@ -26,7 +26,7 @@
 
 ### 목표
 
-1. **`yjcli` 하나로 시작** — 인자 없이 실행하면 단계별 체크리스트(위저드)를 띄운다.
+1. **`yjcli start` 로 시작** — 단계별 체크리스트(위저드)를 띄운다. 인자 없는 `yjcli` 는 도움말만 출력한다 (실수로 실행해도 아무것도 바꾸지 않도록).
 2. **모든 선택은 마지막에 한 번에 적용** — 질문 단계에서는 파일을 쓰지 않는다. 계획을 요약해 보여주고, 확인을 받은 뒤 실행한다.
 3. **파라미터가 곧 답변** — 인자로 준 항목은 해당 단계를 건너뛴다. 모든 단계를 인자로 채우면 완전 비대화형이 된다.
 4. **플랫폼·서비스는 코드만, 나머지는 플러그인** — 플랫폼과 서비스를 만들 때는 순수하게 코드 관련 내용만 넣는다. 실행·환경 파일·빌드/배포 같은 도구는 저장소 단위 **플러그인**(`runner`, `secrets`, `builder`)으로 분리해 `tools/` 아래에 둔다.
@@ -60,7 +60,7 @@
 ### 2.1 전체 흐름
 
 ```
-yjcli
+yjcli start
   │
   ├─ 0. 상태 감지 ── .yjcli/manifest.toml 있음? ──┬─ 없음 → 신규(new)
   │                                               └─ 있음 → 업데이트(update)
@@ -243,8 +243,9 @@ repo/
 
 | 명령 | 역할 |
 |------|------|
-| `yjcli` | 위저드. 상태를 감지해 신규 또는 업데이트로 진행 |
-| `yjcli --yes` | 매니페스트(또는 인자)대로 바로 적용. 업데이트 자동화와 CI용 |
+| `yjcli` | 도움말 출력 (아무것도 바꾸지 않음) |
+| `yjcli start` | 위저드. 상태를 감지해 신규 또는 업데이트로 진행 |
+| `yjcli start --yes` | 매니페스트(또는 인자)대로 바로 적용. 업데이트 자동화와 CI용 |
 | `yjcli update` | 선택은 그대로 두고, 설치된 yjcli 의 최신 스킬·AGENTS.md 블록·관리 파일만 반영 (§6.4) |
 | `yjcli plan` | 실행하지 않고 계획만 출력 (`--dry-run` 과 같음) |
 | `yjcli service add` | 업데이트 모드에서 4단계(서비스 이름)만 실행. 예: `yjcli service add -n backend=a3` |
@@ -277,7 +278,7 @@ repo/
 - 업데이트 모드에서 인자를 생략한 단계는 **매니페스트 값을 기본 선택으로 보여준다**. `--yes` 와 함께 쓰면 매니페스트 값을 그대로 쓴다.
 - stdin 이 TTY 가 아닌데 비어 있는 단계가 있으면 (예: 신규 플랫폼인데 `-n` 이 없음, `--plugin` 이 없음), 어떤 인자가 빠졌는지 한 번에 모두 알려주고 종료한다.
 
-예: `yjcli -l claude -n backend=a1,a2 -n frontend=f1 --plugin runner -y`
+예: `yjcli start -l claude -n backend=a1,a2 -n frontend=f1 --plugin runner -y`
 
 ---
 
@@ -924,7 +925,7 @@ TTY 가 아니면 프롬프트 라이브러리를 아예 쓰지 않고 §3.2 의
 | M2. 플러그인 | `catalog/plugins.py`, `data/plugins/{runner,secrets,builder}`, 스크립트 경로를 `tools/` 기준으로 수정, Makefile 조각 렌더링, AGENTS.md `yjcli:layout` 블록, 의존성 풀기 | 각 플러그인 단독·조합 설치 테스트 통과, `make backend NAME=a1` 이 `tools/secrets` 의 `RUN_COMMAND` 로 실행됨 |
 | M3. 스킬 재구성 | `yj-backend-service` 분리 → `yj-backend` / `yj-backend-ssr`, `yj-backend-msa` 경로 변경, `yj-arch-core` 에서 도구 규칙을 플러그인 조각으로 분리, `_shared/` 추출, description 정리, 자리표시 도입 | §5.7 검증 테스트 통과 |
 | M4. 매니페스트 | `manifest.toml` 읽기/쓰기, 파일 정책, 해시 기록 | 신규 설치 후 매니페스트 생성, `status` 동작 |
-| M5. 위저드 | `yjcli` 기본 진입, 플랫폼·플러그인 체크박스, 플랫폼별 이름 입력, 인자로 단계 건너뛰기, 요약/확인 | 대화형·비대화형 모두 E2E 테스트 통과. `backend: a1,a2` + `frontend: f1` 입력 시 `backend/a1`, `backend/a2`, `frontend/f1` 생성 |
+| M5. 위저드 | `yjcli start` 진입, 플랫폼·플러그인 체크박스, 플랫폼별 이름 입력, 인자로 단계 건너뛰기, 요약/확인 | 대화형·비대화형 모두 E2E 테스트 통과. `backend: a1,a2` + `frontend: f1` 입력 시 `backend/a1`, `backend/a2`, `frontend/f1` 생성 |
 | M6. 업데이트 | diff 계산, 플랫폼·서비스·LLM·플러그인 추가/제거, 사용자 수정 감지, `--force` | §6.3 표의 각 행에 대한 테스트 |
 | M7. 문서/릴리스 | README 재작성, 기존 명령 코드 삭제, 0.3.0 배포 | — |
 

@@ -3,7 +3,7 @@
 Wizard that scaffolds YJ-architecture repositories: platform code folders,
 services, tooling plugins, and AI agent wiring (Cursor, Claude Code, Codex).
 
-Run `yjcli` with no arguments and it walks you through a checklist. Nothing is
+Run `yjcli start` and it walks you through a checklist (`yjcli` alone prints help). Nothing is
 written until you confirm the plan at the end. Every step can also be answered
 with a command-line argument, which skips that step.
 
@@ -19,7 +19,7 @@ uv tool upgrade yjcli
 
 ```bash
 cd /path/to/your-repo
-yjcli                                   # interactive wizard
+yjcli start                             # interactive wizard
 ```
 
 ```text
@@ -36,7 +36,7 @@ yjcli                                   # interactive wizard
 The same thing without prompts:
 
 ```bash
-yjcli -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,secrets -y
+yjcli start -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,secrets -y
 ```
 
 ## Steps
@@ -100,8 +100,8 @@ run (so teammates on old versions cannot roll files back); `--force` overrides.
 ### Change the selection
 
 ```bash
-yjcli                                      # wizard, stored selection as defaults
-yjcli --plugin runner,secrets,builder -y   # add the builder plugin
+yjcli start                                # wizard, stored selection as defaults
+yjcli start --plugin runner,secrets,builder -y   # add the builder plugin
 yjcli service add -n backend=a3            # add services
 yjcli plan --diff                          # show the plan only
 ```

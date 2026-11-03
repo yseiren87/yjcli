@@ -52,6 +52,8 @@ class Case:
 
     # ----------------------------------------------------------------- running
     def yjcli(self, *args: str, expect: int | None = 0) -> Result:
+        if args and args[0].startswith("-"):
+            args = ("start", *args)  # options only → the wizard command
         cmd = [sys.executable, "-m", "yjcli", *args, "--path", str(self.dir)]
         return self._run(cmd, expect, cwd=REPO, label="yjcli " + " ".join(args))
 
@@ -478,8 +480,11 @@ with create_pipe_input() as inp:
     c.contains(".yjcli/manifest.toml", 'llms = ["cursor", "claude"]', 'plugins = ["runner", "secrets", "builder"]')
 
 
-@case("18-status-doctor", "status / doctor")
+@case("18-status-doctor", "status / doctor / 인자 없는 yjcli 는 도움말")
 def _(c: Case):
+    r = c._run([sys.executable, "-m", "yjcli"], 0, cwd=REPO, label="yjcli (no args)")
+    c.output_has(r, "Usage:", "start", "update")
+    c.check(not c.dir.exists() or not any(c.dir.iterdir()), "bare yjcli must not write anything")
     r = c.yjcli("status", expect=1)
     c.output_has(r, "구성되지 않은 폴더")
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")

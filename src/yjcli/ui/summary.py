@@ -107,5 +107,5 @@ def print_next_steps(console: Console, plan: Plan) -> None:
         p, s = first
         console.print(f"  빌드: make {p}-build-development NAME={s}  (tools/builder/{p}/ 구현 필요)", markup=False)
     if not plan.plugins:
-        console.print("  플러그인 없이 코드만 만들었습니다. 나중에 `yjcli` 를 다시 실행해 추가할 수 있습니다.", markup=False)
+        console.print("  플러그인 없이 코드만 만들었습니다. 나중에 `yjcli start` 로 추가할 수 있습니다.", markup=False)
     console.print("  서비스 추가: yjcli service add -n <platform>=<이름들>", markup=False)
