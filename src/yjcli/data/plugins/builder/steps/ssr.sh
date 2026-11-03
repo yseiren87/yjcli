@@ -22,7 +22,7 @@ else
 fi
 
 found=0
-for dir in "${candidates[@]}"; do
+for dir in ${candidates[@]+"${candidates[@]}"}; do
   if [ -d "$dir" ]; then
     found=1
     echo "[build] views: $dir (template/asset build is not implemented)"
