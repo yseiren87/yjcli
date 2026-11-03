@@ -69,6 +69,7 @@ confirm() {
 # ----------------------------------------------------------------------------- state / rollback
 
 VERSION_CHANGED=0   # pyproject.toml / uv.lock modified but not committed yet
+UNPUSHED=0          # local commits ahead of origin before the release commit
 COMMITTED=0
 PUSHED=0
 PUBLISHED=0
@@ -121,6 +122,12 @@ published_version() {
 
 on_pypi() {
   curl -fs --max-time 10 -o /dev/null "https://pypi.org/pypi/${PACKAGE}/$1/json"
+}
+
+newer() {  # newer <a> <b>: true when version a > version b
+  python3 -c 'import sys
+k = lambda v: [int(x) for x in v.split("+")[0].split(".")]
+sys.exit(0 if k(sys.argv[1]) > k(sys.argv[2]) else 1)' "$1" "$2"
 }
 
 bump() {  # bump <version> <major|minor|fix>
@@ -177,16 +184,24 @@ preflight() {
   [ "$branch" = "$BRANCH" ] || fail "Releases are cut from '$BRANCH' (current: '$branch')."
   [ -z "$(git status --porcelain)" ] || fail "Working tree is not clean. Commit or stash first."
   git fetch -q origin "$BRANCH" --tags
-  [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ] \
-    || fail "Local $BRANCH differs from origin/$BRANCH. Pull or push first."
-  ok "On $BRANCH, clean, in sync with origin."
+  local behind ahead
+  behind="$(git rev-list --count "HEAD..origin/$BRANCH")"
+  ahead="$(git rev-list --count "origin/$BRANCH..HEAD")"
+  [ "$behind" -eq 0 ] \
+    || fail "Local $BRANCH is $behind commit(s) behind origin/$BRANCH. Pull first."
+  ok "On $BRANCH, clean, not behind origin."
+  UNPUSHED="$ahead"
+  if [ "$ahead" -gt 0 ]; then
+    warn "$ahead unpushed commit(s) will be pushed together with the release (step 5):"
+    git log --format='      %h %s' "origin/$BRANCH..HEAD"
+  fi
 }
 
 full_release() {
   printf '\n%s  yjcli release%s\n' "$BOLD" "$RESET"
 
   step 1 "Preflight checks"
-  info "Checks tools, tokens, branch '$BRANCH', clean tree, sync with origin."
+  info "Checks tools, tokens, branch '$BRANCH', clean tree, not behind origin."
   confirm "Run preflight checks?"
   preflight
 
@@ -194,9 +209,9 @@ full_release() {
   local current published level answer
   current="$(project_version)"
   published="$(published_version)" || fail "Could not read the latest version from PyPI."
-  info "pyproject.toml : ${BOLD}${current}${RESET}"
-  info "Last on PyPI   : ${BOLD}${published}${RESET}  (bump is based on this)"
-  info "major → $(bump "$published" major)   minor → $(bump "$published" minor)   fix → $(bump "$published" fix)"
+  info "Current version : ${BOLD}${current}${RESET}  (pyproject.toml — bump is based on this)"
+  info "Latest on PyPI  : ${BOLD}${published}${RESET}"
+  info "major → $(bump "$current" major)   minor → $(bump "$current" minor)   fix → $(bump "$current" fix)"
   while true; do
     answer="$(read_answer "Which part to bump?" "Type  major  ·  minor  ·  fix  ·  exit")"
     case "$answer" in
@@ -205,14 +220,13 @@ full_release() {
       *) warn "Please type major, minor, fix or exit." ;;
     esac
   done
-  NEW_VERSION="$(bump "$published" "$level")"
+  NEW_VERSION="$(bump "$current" "$level")"
+  newer "$NEW_VERSION" "$published" || fail "$NEW_VERSION is not newer than PyPI's $published."
   on_pypi "$NEW_VERSION" && fail "$NEW_VERSION is already on PyPI."
   git rev-parse -q --verify "refs/tags/${TAG_PREFIX}${NEW_VERSION}" >/dev/null \
     && fail "Tag ${TAG_PREFIX}${NEW_VERSION} already exists."
-  if [ "$current" != "$NEW_VERSION" ]; then
-    VERSION_CHANGED=1
-    uv version -q "$NEW_VERSION" --no-sync
-  fi
+  VERSION_CHANGED=1
+  uv version -q "$NEW_VERSION" --no-sync
   ok "Version: ${current} → ${BOLD}${NEW_VERSION}${RESET}"
 
   step 3 "Tests"
@@ -228,18 +242,16 @@ full_release() {
   build_and_dry_run
 
   step 5 "Git commit, tag, push"
-  if [ "$VERSION_CHANGED" -eq 1 ]; then
-    info "Commit : release: ${NEW_VERSION}  (pyproject.toml, uv.lock)"
-  else
-    info "Commit : none — pyproject.toml is already ${NEW_VERSION}; the tag goes on the current HEAD"
-  fi
+  info "Commit : release: ${NEW_VERSION}  (pyproject.toml, uv.lock)"
   info "Tag    : ${TAG_PREFIX}${NEW_VERSION}"
   info "Push   : origin ${BRANCH} + tag"
-  confirm "Commit, tag and push?"
-  if [ "$VERSION_CHANGED" -eq 1 ]; then
-    git add pyproject.toml uv.lock
-    git commit -q -m "release: ${NEW_VERSION}"
+  if [ "$UNPUSHED" -gt 0 ]; then
+    info "         includes ${UNPUSHED} earlier unpushed commit(s):"
+    git log --format='           %h %s' "origin/$BRANCH..HEAD"
   fi
+  confirm "Commit, tag and push?"
+  git add pyproject.toml uv.lock
+  git commit -q -m "release: ${NEW_VERSION}"
   git tag "${TAG_PREFIX}${NEW_VERSION}"
   COMMITTED=1
   git_push -q origin "$BRANCH" "refs/tags/${TAG_PREFIX}${NEW_VERSION}" || fail "git push failed."

@@ -139,7 +139,8 @@ scripts/e2e.sh -k wizard -v                    # one case, with output on failur
 ```
 
 Every step waits for `y` or `exit` (case-insensitive). The bump step asks for
-`major`, `minor` or `fix` (no default) and bumps from the latest version on PyPI.
+`major`, `minor` or `fix` (no default) and bumps the `pyproject.toml` version,
+which always equals the last release (only `release.sh` changes it).
 Tags follow `release/X.Y.Z`. Tokens go in `.env.release` (git-ignored):
 
 ```bash
