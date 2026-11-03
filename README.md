@@ -131,4 +131,20 @@ scripts/e2e.sh                                 # end-to-end scenarios into ./san
 scripts/e2e.sh -k wizard -v                    # one case, with output on failure
 ```
 
+## Releasing (maintainers)
+
+```bash
+./release.sh                  # bump → tests → build + PyPI dry-run → commit/tag/push → publish
+./release.sh --publish-only   # publish an already pushed release/X.Y.Z tag
+```
+
+Every step waits for `y` or `exit` (case-insensitive). The bump step asks for
+`major`, `minor` or `fix` (no default) and bumps from the latest version on PyPI.
+Tags follow `release/X.Y.Z`. Tokens go in `.env.release` (git-ignored):
+
+```bash
+UV_PUBLISH_TOKEN=pypi-...       # required
+GITHUB_TOKEN=github_pat_...     # optional, used only for git push
+```
+
 Design notes: [`docs/redesign.md`](docs/redesign.md).
