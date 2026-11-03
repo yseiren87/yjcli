@@ -138,7 +138,9 @@ scripts/e2e.sh -k wizard -v                    # one case, with output on failur
 ./release.sh --publish-only   # publish an already pushed release/X.Y.Z tag
 ```
 
-Every step waits for `y` or `exit` (case-insensitive). The bump step asks for
+Every step waits for `y` or `exit` (case-insensitive). Uncommitted changes do
+not block: they are listed in step 1 and committed together with the version
+bump in step 5, where you type the commit message. The bump step asks for
 `major`, `minor` or `fix` (no default) and bumps the `pyproject.toml` version,
 which always equals the last release (only `release.sh` changes it).
 Tags follow `release/X.Y.Z`. Tokens go in `.env.release` (git-ignored):

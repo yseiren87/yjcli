@@ -54,6 +54,33 @@ read_answer() {
   printf '%s' "$answer" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]'
 }
 
+# Free-text prompt (keeps case and inner spaces); "exit" quits, empty asks again.
+read_text() {
+  local question="$1" hint="$2" answer
+  while true; do
+    {
+      printf '\n\n'
+      printf '  %s  ▶ %s  %s\n' "$PROMPT" "$question" "$RESET"
+      printf '  %s%s%s\n' "$BOLD" "$hint" "$RESET"
+      printf '  %s>%s ' "$BOLD$YELLOW" "$RESET"
+    } >&2
+    if ! IFS= read -r answer; then
+      answer="exit"
+    fi
+    printf '\n\n' >&2
+    answer="$(printf '%s' "$answer" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [ "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')" = "exit" ]; then
+      info "Exited by user." >&2
+      return 1
+    fi
+    if [ -n "$answer" ]; then
+      printf '%s' "$answer"
+      return 0
+    fi
+    warn "Please type a message or exit." >&2
+  done
+}
+
 confirm() {
   local answer
   while true; do
@@ -68,7 +95,8 @@ confirm() {
 
 # ----------------------------------------------------------------------------- state / rollback
 
-VERSION_CHANGED=0   # pyproject.toml / uv.lock modified but not committed yet
+VERSION_CHANGED=0   # version bumped but not committed yet
+OLD_VERSION=""
 UNPUSHED=0          # local commits ahead of origin before the release commit
 COMMITTED=0
 PUSHED=0
@@ -78,8 +106,8 @@ NEW_VERSION=""
 cleanup_and_exit() {
   local code="$1"
   if [ "$VERSION_CHANGED" -eq 1 ] && [ "$COMMITTED" -eq 0 ]; then
-    git checkout -- pyproject.toml uv.lock 2>/dev/null || true
-    info "Reverted pyproject.toml and uv.lock."
+    uv version -q "$OLD_VERSION" --no-sync 2>/dev/null || true
+    info "Reverted the version to ${OLD_VERSION} (other uncommitted changes are untouched)."
   fi
   if [ "$COMMITTED" -eq 1 ] && [ "$PUSHED" -eq 0 ]; then
     warn "Commit and tag ${TAG_PREFIX}${NEW_VERSION} exist locally but were not pushed."
@@ -182,14 +210,17 @@ preflight() {
   local branch
   branch="$(git branch --show-current)"
   [ "$branch" = "$BRANCH" ] || fail "Releases are cut from '$BRANCH' (current: '$branch')."
-  [ -z "$(git status --porcelain)" ] || fail "Working tree is not clean. Commit or stash first."
   git fetch -q origin "$BRANCH" --tags
   local behind ahead
   behind="$(git rev-list --count "HEAD..origin/$BRANCH")"
   ahead="$(git rev-list --count "origin/$BRANCH..HEAD")"
   [ "$behind" -eq 0 ] \
     || fail "Local $BRANCH is $behind commit(s) behind origin/$BRANCH. Pull first."
-  ok "On $BRANCH, clean, not behind origin."
+  ok "On $BRANCH, not behind origin."
+  if [ -n "$(git status --porcelain)" ]; then
+    warn "Uncommitted changes will be included in the release commit (step 5):"
+    git status --short | sed 's/^/      /'
+  fi
   UNPUSHED="$ahead"
   if [ "$ahead" -gt 0 ]; then
     warn "$ahead unpushed commit(s) will be pushed together with the release (step 5):"
@@ -201,7 +232,7 @@ full_release() {
   printf '\n%s  yjcli release%s\n' "$BOLD" "$RESET"
 
   step 1 "Preflight checks"
-  info "Checks tools, tokens, branch '$BRANCH', clean tree, not behind origin."
+  info "Checks tools, tokens, branch '$BRANCH', not behind origin; lists uncommitted changes."
   confirm "Run preflight checks?"
   preflight
 
@@ -225,6 +256,7 @@ full_release() {
   on_pypi "$NEW_VERSION" && fail "$NEW_VERSION is already on PyPI."
   git rev-parse -q --verify "refs/tags/${TAG_PREFIX}${NEW_VERSION}" >/dev/null \
     && fail "Tag ${TAG_PREFIX}${NEW_VERSION} already exists."
+  OLD_VERSION="$current"
   VERSION_CHANGED=1
   uv version -q "$NEW_VERSION" --no-sync
   ok "Version: ${current} → ${BOLD}${NEW_VERSION}${RESET}"
@@ -242,7 +274,8 @@ full_release() {
   build_and_dry_run
 
   step 5 "Git commit, tag, push"
-  info "Commit : release: ${NEW_VERSION}  (pyproject.toml, uv.lock)"
+  info "Commit : every change below (git add -A; .gitignore'd files excluded)"
+  git status --short | sed 's/^/           /'
   info "Tag    : ${TAG_PREFIX}${NEW_VERSION}"
   info "Push   : origin ${BRANCH} + tag"
   if [ "$UNPUSHED" -gt 0 ]; then
@@ -250,8 +283,11 @@ full_release() {
     git log --format='           %h %s' "origin/$BRANCH..HEAD"
   fi
   confirm "Commit, tag and push?"
-  git add pyproject.toml uv.lock
-  git commit -q -m "release: ${NEW_VERSION}"
+  local message
+  message="$(read_text "Commit message?" "Type the message (e.g. release: ${NEW_VERSION} — ...)  ·  exit  to quit")" \
+    || cleanup_and_exit 0
+  git add -A
+  git commit -q -m "$message"
   git tag "${TAG_PREFIX}${NEW_VERSION}"
   COMMITTED=1
   git_push -q origin "$BRANCH" "refs/tags/${TAG_PREFIX}${NEW_VERSION}" || fail "git push failed."
