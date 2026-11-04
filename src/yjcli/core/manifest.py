@@ -17,6 +17,9 @@ class FileRecord:
     policy: str
     sha256: str  # content yjcli last wrote (or found, for adopted seeds)
     template: str | None = None  # sha256 of the rendered template (seed files)
+    # Seed whose owner (plugin, LLM, platform, service) is gone but which the user
+    # changed, so it was kept; `--purge` deletes it later.
+    orphan: bool = False
 
 
 @dataclass
@@ -72,7 +75,8 @@ def load(root: Path) -> Manifest | None:
         plugins=list(data.get("plugins", [])),
         platforms={k: list(v.get("services", [])) for k, v in data.get("platforms", {}).items()},
         files={
-            k: FileRecord(policy=v["policy"], sha256=v["sha256"], template=v.get("template"))
+            k: FileRecord(policy=v["policy"], sha256=v["sha256"], template=v.get("template"),
+                          orphan=bool(v.get("orphan", False)))
             for k, v in data.get("files", {}).items()
         },
     )
@@ -104,5 +108,7 @@ def dumps(manifest: Manifest) -> str:
         fields = [f"policy = {_q(rec.policy)}", f"sha256 = {_q(rec.sha256)}"]
         if rec.template:
             fields.append(f"template = {_q(rec.template)}")
+        if rec.orphan:
+            fields.append("orphan = true")
         lines.append(f"{_q(path)} = {{ {', '.join(fields)} }}")
     return "\n".join(lines) + "\n"

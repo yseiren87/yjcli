@@ -40,9 +40,7 @@ view  = pages/{feature} + components/{feature} (+ generated ui primitives)
 infra = lib/*, hooks/*
 ```
 
-Flow and view use the same `{feature}` boundary under separate role roots. Do
-not place a feature store or API module beside `pages/` or `components/` as if
-it were a view.
+Flow and view use the same `{feature}` boundary under separate role roots. Do not place a feature store or API module beside `pages/` or `components/` as if it were a view.
 
 **No `src/domains/` by default.** Model = API types; feature rules live in store/container (flow).  
 Exception: heavy **client-owned** offline DB/engine concepts only (then optional domain slots per core).
@@ -54,8 +52,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 - Follow `yj-arch-core` env names; listen apps need `HOST`/`PORT`. No plain `.env`.
 - `npm start` / local mode must mean local-dev — do not silently point bare start at development/production deploy envs.
 - Store calls the same feature's `api`; pages/components do not call network directly.
-- Keep one store file per feature directly under `stores/`; do not add a
-  redundant `{feature}/` directory for a single store file.
+- Keep one store file per feature directly under `stores/`; do not add a redundant `{feature}/` directory for a single store file.
 - Container route wires store + router; presentational page takes props only.
 - Routes declared at entry — do not scatter route tables; entry stays registration-thin.
 - Generated UI primitives: do not hand-edit or duplicate.
@@ -63,9 +60,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 
 ## Optional: server templating (SSR)
 
-Templating is an **option**, not this app's default. Most apps stay a
-client-rendered SPA — enable only when this app must render HTML server-side
-(e.g. a lightweight SSR/SSG entry alongside the Vite build).
+Templating is an **option**, not this app's default. Most apps stay a client-rendered SPA — enable only when this app must render HTML server-side (e.g. a lightweight SSR/SSG entry alongside the Vite build).
 
 When enabled, add sibling to `src/`:
 
@@ -73,13 +68,9 @@ When enabled, add sibling to `src/`:
 views/{page}.html | views/layouts/* | views/partials/*
 ```
 
-- Template/asset bundling is wired into the repository's build tooling, which
-  detects `{app_name}/views/` (see `yj-arch-core` › Tooling). Implement it
-  there, not as an ad-hoc one-off command.
-- Keep `src/` (client bundle) and `views/` (server-rendered templates)
-  separate; do not fold template markup into `pages/`/`components/`.
-- Do **not** create `views/` speculatively — it does not apply to a normal
-  client-only SPA.
+- Template/asset bundling is wired into the repository's build tooling, which detects `{app_name}/views/` (see `yj-arch-core` › Tooling). Implement it there, not as an ad-hoc one-off command.
+- Keep `src/` (client bundle) and `views/` (server-rendered templates) separate; do not fold template markup into `pages/`/`components/`.
+- Do **not** create `views/` speculatively — it does not apply to a normal client-only SPA.
 
 ## Import direction
 

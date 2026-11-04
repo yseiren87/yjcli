@@ -43,9 +43,7 @@ Rules:
 - templates: presentation only; no DB/service/domain calls.
 - Template engine wiring lives in `modules` + `apps`.
 - Keep API flows reusable; do not fork business logic into templates.
-- Template/asset bundling is wired into the repository's build tooling, which
-  detects `views/` per service (see `yj-arch-core` › Tooling). Implement it
-  there, not as an ad-hoc command.
+- Template/asset bundling is wired into the repository's build tooling, which detects `views/` per service (see `yj-arch-core` › Tooling). Implement it there, not as an ad-hoc command.
 - A JSON-API-only service belongs in `backend/` (`yj-backend`), not here.
 
 {{include:grpc-optional.md}}

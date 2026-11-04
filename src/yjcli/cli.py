@@ -11,12 +11,13 @@ import typer
 from rich.console import Console
 
 from yjcli.catalog import data_root
-from yjcli.catalog.llms import LLMS
+from yjcli.catalog.llms import LLM_BY_ID, LLMS
 from yjcli.catalog.platforms import PLATFORMS
-from yjcli.catalog.plugins import PLUGINS
+from yjcli.catalog.plugins import PLUGIN_BY_ID, PLUGINS
 from yjcli.core import executor, manifest as manifest_mod
 from yjcli.catalog.plugins import MANAGED
-from yjcli.core.planner import PlanError, build_plan
+from yjcli.core.planner import PlanError, build_plan, is_env_value
+from yjcli.core.references import stale_references
 from yjcli.core.selection import Draft, fill_from_manifest, from_args, missing, validate
 from yjcli.core.state import read_state
 from yjcli.ui.summary import print_next_steps, print_summary
@@ -49,6 +50,8 @@ YesOpt = Annotated[bool, typer.Option("--yes", "-y", help="확인 없이 실행"
 DryRunOpt = Annotated[bool, typer.Option("--dry-run", help="계획만 출력하고 종료")]
 ForceOpt = Annotated[bool, typer.Option("--force", help="사용자가 수정한 관리 파일도 덮어씀, 버전 가드 무시")]
 DiffOpt = Annotated[bool, typer.Option("--diff", help="바뀌는 파일의 내용 차이(diff)도 출력")]
+PurgeOpt = Annotated[bool, typer.Option(
+    "--purge", help="주인(플러그인·LLM·서비스)이 없어진 파일은 수정했더라도 삭제 (tools/secrets 의 env 값 파일 제외)")]
 PathOpt = Annotated[
     Path,
     typer.Option("--path", help="대상 저장소 루트 (기본: 현재 폴더)", file_okay=False, dir_okay=True, resolve_path=True),
@@ -62,6 +65,10 @@ app = typer.Typer(
 )
 service_app = typer.Typer(help="서비스 관리", no_args_is_help=True)
 app.add_typer(service_app, name="service")
+plugin_app = typer.Typer(help="플러그인만 추가/제거 (나머지 선택은 manifest 그대로)", no_args_is_help=True)
+app.add_typer(plugin_app, name="plugin")
+llm_app = typer.Typer(help="LLM 대상만 추가/제거 (나머지 선택은 manifest 그대로)", no_args_is_help=True)
+app.add_typer(llm_app, name="llm")
 
 
 def _fail(messages: list[str], title: str = "error") -> None:
@@ -83,6 +90,7 @@ def run(
     dry_run: bool,
     force: bool,
     diff: bool = False,
+    purge: bool = False,
     prepare=None,
 ) -> None:
     if mode not in (None, "new", "update"):
@@ -107,6 +115,7 @@ def run(
     draft, errors = from_args(state, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option)
     if errors:
         _fail(errors)
+    draft.purge = purge
     if prepare:
         prepare(draft, state)
     if draft.mode == "update":
@@ -184,11 +193,15 @@ def start(
     dry_run: DryRunOpt = False,
     force: ForceOpt = False,
     diff: DiffOpt = False,
+    purge: PurgeOpt = False,
     path: PathOpt = Path("."),
 ) -> None:
-    """위저드 시작: 새 저장소 구성 또는 기존 구성 변경 (인자로 단계를 미리 답할 수 있음)."""
+    """위저드 시작: 새 저장소 구성 또는 기존 구성 변경 (인자로 단계를 미리 답할 수 있음).
+
+    기존 저장소에서는 지정하지 않은 단계가 manifest 값을 그대로 씁니다.
+    """
     run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
-        yes=yes, dry_run=dry_run, force=force, diff=diff)
+        yes=yes, dry_run=dry_run, force=force, diff=diff, purge=purge)
 
 
 @app.command("update")
@@ -197,6 +210,7 @@ def update(
     dry_run: DryRunOpt = False,
     force: ForceOpt = False,
     diff: DiffOpt = False,
+    purge: PurgeOpt = False,
     path: PathOpt = Path("."),
 ) -> None:
     """선택은 그대로 두고, 설치된 yjcli 의 최신 스킬·AGENTS.md 블록·관리 파일을 반영."""
@@ -208,7 +222,109 @@ def update(
         draft.given |= {f"names:{p}" for p in state.manifest.platforms}
 
     run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
-        yes=yes, dry_run=dry_run, force=force, diff=diff, prepare=prepare)
+        yes=yes, dry_run=dry_run, force=force, diff=diff, purge=purge, prepare=prepare)
+
+
+def _require_manifest(state) -> None:
+    if not state.manifest:
+        _fail([".yjcli/manifest.toml 이 없습니다. 먼저 `yjcli start` 로 구성하세요"])
+
+
+def _keep_rest(draft: Draft, state) -> None:
+    """Every step except the one being changed comes from the manifest."""
+    draft.llms = list(state.manifest.llms) if draft.llms is None else draft.llms
+    draft.platforms = list(state.manifest.platforms)
+    draft.plugins = list(state.manifest.plugins) if draft.plugins is None else draft.plugins
+    draft.given |= {"llms", "platforms", "plugins"} | {f"names:{p}" for p in state.manifest.platforms}
+
+
+def _ids(values: list[str], known: dict, kind: str) -> list[str]:
+    items = [v.strip() for value in values for v in value.split(",") if v.strip()]
+    unknown = [v for v in items if v not in known]
+    if unknown:
+        _fail([f"알 수 없는 {kind}: {', '.join(unknown)} (사용 가능: {', '.join(known)})"])
+    return items
+
+
+def _change_plugins(ids: list[str], *, add: bool, yes: bool, dry_run: bool, purge: bool, path: Path) -> None:
+    wanted = _ids(ids, PLUGIN_BY_ID, "플러그인")
+
+    def prepare(draft: Draft, state) -> None:
+        _require_manifest(state)
+        current = list(state.manifest.plugins)
+        if add:
+            already = [p for p in wanted if p in current]
+            selected = current + [p for p in wanted if p not in current]
+            lacking = [r for p in wanted for r in PLUGIN_BY_ID[p].requires if r not in selected]
+            if lacking:
+                _fail([f"{', '.join(wanted)} 는 {', '.join(dict.fromkeys(lacking))} 가 필요합니다 — "
+                       f"함께 지정하세요: yjcli plugin add {' '.join(dict.fromkeys([*lacking, *wanted]))}"])
+        else:
+            already = [p for p in wanted if p not in current]
+            selected = [p for p in current if p not in wanted]
+            dependents = [p for p in selected if any(r in wanted for r in PLUGIN_BY_ID[p].requires)]
+            if dependents:
+                _fail([f"{', '.join(dependents)} 가 {', '.join(wanted)} 를 필요로 합니다 — "
+                       f"함께 지정하세요: yjcli plugin remove {' '.join([*wanted, *dependents])}"])
+        for p in already:
+            draft.notes.append(f"{p}: 이미 {'설치되어' if add else '빠져'} 있음 (변경 없음)")
+        draft.plugins = [p.id for p in PLUGINS if p.id in selected]
+        _keep_rest(draft, state)
+
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+        yes=yes, dry_run=dry_run, force=False, purge=purge, prepare=prepare)
+
+
+def _change_llms(ids: list[str], *, add: bool, yes: bool, dry_run: bool, purge: bool, path: Path) -> None:
+    wanted = _ids(ids, LLM_BY_ID, "LLM")
+
+    def prepare(draft: Draft, state) -> None:
+        _require_manifest(state)
+        current = list(state.manifest.llms)
+        if add:
+            already = [l for l in wanted if l in current]
+            selected = current + [l for l in wanted if l not in current]
+        else:
+            already = [l for l in wanted if l not in current]
+            selected = [l for l in current if l not in wanted]
+            if not selected:
+                _fail(["LLM 대상은 최소 1개가 남아야 합니다"])
+        for l in already:
+            draft.notes.append(f"{l}: 이미 {'선택되어' if add else '빠져'} 있음 (변경 없음)")
+        draft.llms = [l.id for l in LLMS if l.id in selected]
+        _keep_rest(draft, state)
+
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+        yes=yes, dry_run=dry_run, force=False, purge=purge, prepare=prepare)
+
+
+IdsArg = Annotated[list[str], typer.Argument(help="대상 id (공백/쉼표 구분)")]
+
+
+@plugin_app.command("add")
+def plugin_add(plugin: IdsArg, yes: YesOpt = False, dry_run: DryRunOpt = False, path: PathOpt = Path(".")) -> None:
+    """플러그인 추가 (예: yjcli plugin add builder deployer)."""
+    _change_plugins(plugin, add=True, yes=yes, dry_run=dry_run, purge=False, path=path)
+
+
+@plugin_app.command("remove")
+def plugin_remove(plugin: IdsArg, yes: YesOpt = False, dry_run: DryRunOpt = False, purge: PurgeOpt = False,
+                  path: PathOpt = Path(".")) -> None:
+    """플러그인 제거 (구현한 스크립트는 남김, --purge 면 함께 삭제)."""
+    _change_plugins(plugin, add=False, yes=yes, dry_run=dry_run, purge=purge, path=path)
+
+
+@llm_app.command("add")
+def llm_add(llm: IdsArg, yes: YesOpt = False, dry_run: DryRunOpt = False, path: PathOpt = Path(".")) -> None:
+    """LLM 대상 추가."""
+    _change_llms(llm, add=True, yes=yes, dry_run=dry_run, purge=False, path=path)
+
+
+@llm_app.command("remove")
+def llm_remove(llm: IdsArg, yes: YesOpt = False, dry_run: DryRunOpt = False, purge: PurgeOpt = False,
+               path: PathOpt = Path(".")) -> None:
+    """LLM 대상 제거 (yj 스킬 삭제, 수정한 설정 파일은 남김 — --purge 면 함께 삭제)."""
+    _change_llms(llm, add=False, yes=yes, dry_run=dry_run, purge=purge, path=path)
 
 
 @app.command("plan")
@@ -221,11 +337,12 @@ def plan_cmd(
     mode: ModeOpt = None,
     force: ForceOpt = False,
     diff: DiffOpt = False,
+    purge: PurgeOpt = False,
     path: PathOpt = Path("."),
 ) -> None:
     """실행하지 않고 계획만 출력 (--dry-run 과 같음)."""
     run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
-        yes=True, dry_run=True, force=force, diff=diff)
+        yes=True, dry_run=True, force=force, diff=diff, purge=purge)
 
 
 @service_app.command("add")
@@ -245,7 +362,7 @@ def service_add(
             _fail([f"구성되지 않은 플랫폼: {', '.join(unknown)} (플랫폼 추가는 `yjcli start`)"])
         draft.platforms = list(state.manifest.platforms)
         draft.given |= {"llms", "platforms", "plugins"}
-        if not _interactive() and not any(draft.names.values()):
+        if not _interactive() and not any(g.startswith("names:") for g in draft.given):
             _fail(["--name <platform>=<이름들> 이 필요합니다"], title="missing")
 
     run(path, mode="update", llm=None, platform=None, plugin=None, name=name, option=None,
@@ -280,6 +397,18 @@ def status(path: PathOpt = Path(".")) -> None:
         console.print("[yellow]사용자가 수정한 관리 파일 (업데이트 때 건너뜀):[/yellow]")
         for rel in changed:
             console.print(f"  ! {rel}", markup=False)
+    orphans = [rel for rel, rec in sorted(m.files.items()) if rec.orphan and (path / rel).is_file()]
+    if orphans:
+        console.print("[yellow]남겨 둔 파일 (주인이 없어졌지만 수정되어 있음):[/yellow]")
+        for rel in orphans:
+            console.print(f"  {rel}", markup=False)
+        if any(not is_env_value(rel) for rel in orphans):
+            console.print("  `yjcli update --purge` 로 지울 수 있습니다 (tools/secrets 의 env 값 파일 제외)", markup=False)
+    stale = stale_references(path, llms=m.llms, plugins=m.plugins, platforms=list(m.platforms))
+    if stale:
+        console.print("[yellow]블록 밖에 남은 참조 (지금 구성에 없는 경로):[/yellow]")
+        for line in stale:
+            console.print(f"  {line}", markup=False)
 
 
 @app.command("doctor")

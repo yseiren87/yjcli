@@ -26,11 +26,9 @@ backend/
 
 No `views/` here: server-rendered HTML belongs in `backend-ssr/` (`yj-backend-ssr`).
 
-`browser-extension/native_{name}/` uses the same roles and the `worker` env
-kind. Call it a native host service, not an MSA node.
+`browser-extension/native_{name}/` uses the same roles and the `worker` env kind. Call it a native host service, not an MSA node.
 
-`HOST`/`PORT` are required for `backend/` services (listen) and optional for
-native hosts — add them only when the process actually listens.
+`HOST`/`PORT` are required for `backend/` services (listen) and optional for native hosts — add them only when the process actually listens.
 
 {{include:backend-base.md}}
 

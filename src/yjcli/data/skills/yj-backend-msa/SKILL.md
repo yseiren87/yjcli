@@ -50,12 +50,8 @@ Omit empty `domains/` trees. Do not invent fake repositories to “have a domain
 - Generated stubs go to `backend-msa/proto/dist/{lang}/`.
 - Other platforms (e.g. `mobile-app`) may **symlink** to `backend-msa/proto/dist/{lang}` — they must not own `.proto` copies.
 - Prefer package boundaries in proto that align with service boundaries.
-- Regeneration (protoc is the standard here; buf is not used) is wired into the
-  repository's build tooling, which detects `backend-msa/proto/` automatically
-  (see `yj-arch-core` › Tooling). Implement codegen there, not as an ad-hoc
-  one-off command.
-- Server-rendered HTML does not belong here: a service that must render pages
-  lives in `backend-ssr/` (`yj-backend-ssr`) and calls MSA services over gRPC.
+- Regeneration (protoc is the standard here; buf is not used) is wired into the repository's build tooling, which detects `backend-msa/proto/` automatically (see `yj-arch-core` › Tooling). Implement codegen there, not as an ad-hoc one-off command.
+- Server-rendered HTML does not belong here: a service that must render pages lives in `backend-ssr/` (`yj-backend-ssr`) and calls MSA services over gRPC.
 
 ## Roles inside `{service_name}`
 

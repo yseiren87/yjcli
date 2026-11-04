@@ -15,7 +15,7 @@ from yjcli.catalog.llms import LLMS
 from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS
 from yjcli.catalog.plugins import PLUGINS, disabled_reasons, drop_dependents
 from yjcli.core.names import parse_names
-from yjcli.core.planner import Plan
+from yjcli.core.planner import Plan, is_env_value
 from yjcli.core.selection import Draft, validate
 from yjcli.core.state import RepoState
 from yjcli.ui.prompts import BACK, Item, Prompter
@@ -171,15 +171,20 @@ def run_wizard(
             print_summary(console, plan, draft, details=dry_run, diff_root=diff_root)
             if dry_run:
                 return draft, plan
+            choices = [("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계"), ("cancel", "취소")]
+            if not draft.purge and any(not is_env_value(rel) for rel in plan.orphans):
+                choices.insert(1, ("purge", "적용 + 남겨 둔 파일도 삭제 (--purge, env 값 파일 제외)"))
             while True:
-                choice = prompter.select(
-                    "적용할까요?",
-                    [("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계"), ("cancel", "취소")],
-                )
+                choice = prompter.select("적용할까요?", choices)
                 if choice == "details":
                     print_summary(console, plan, draft, details=True, diff_root=state.root)
                     continue
                 break
+            if choice == "purge":
+                draft.purge = True
+                plan = make_plan(draft)
+                print_summary(console, plan, draft, details=True)
+                return draft, plan
             if choice == "apply":
                 return draft, plan
             if choice == "cancel":

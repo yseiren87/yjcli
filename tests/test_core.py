@@ -47,8 +47,8 @@ class NameTests(unittest.TestCase):
     def test_errors_and_duplicates(self) -> None:
         parsed = parse_names("ok -bad proto ok taken", existing={"taken"})
         self.assertEqual(parsed.names, ["ok"])
-        self.assertEqual(len(parsed.errors), 3)
-        self.assertEqual(len(parsed.notes), 1)
+        self.assertEqual(len(parsed.errors), 2)
+        self.assertEqual(len(parsed.notes), 2)  # duplicate + existing "taken" (kept as is)
 
 
 class PluginTests(unittest.TestCase):
@@ -220,6 +220,66 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(unsupported("0.4.1"))
 
 
+class OrphanTests(unittest.TestCase):
+    def _setup(self, root: Path) -> None:
+        from yjcli.core import executor
+
+        executor.apply(plan_for(root, llm=["claude"], name=["backend=a1"], plugin=["runner"]), root)
+        script = root / "tools/runner/backend/runner.sh"
+        script.write_text(script.read_text() + "\n# implemented\n")
+
+    def test_changed_seed_of_removed_plugin_is_kept_as_orphan(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._setup(root)
+            plan = plan_for(root, plugin=["none"])
+            deleted = {a.path for a in plan.actions if a.kind == "delete"}
+            self.assertIn("tools/runner/backend/runner.ps1", deleted)  # untouched seed
+            self.assertEqual(plan.orphans, ["tools/runner/backend/runner.sh"])
+            self.assertTrue(plan.manifest.files["tools/runner/backend/runner.sh"].orphan)
+
+    def test_purge_deletes_orphans_but_not_env_values(self) -> None:
+        from yjcli.core import executor
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._setup(root)
+            executor.apply(plan_for(root, plugin=["none"]), root)  # orphan recorded
+            (root / "tools/secrets/backend/a1/.env.local-dev").write_text("NAME=mine\n")
+            import shutil
+
+            shutil.rmtree(root / "backend/a1")  # service gone → its env files lose their owner
+            state = read_state(root)
+            draft, _ = from_args(state, mode=None, llm=None, platform=None, plugin=None, name=None, option=None)
+            fill_from_manifest(draft, state)
+            draft.purge = True
+            plan = build_plan(draft, state, version="test")
+            purged = {a.path for a in plan.actions if a.reason == "purge"}
+            self.assertEqual(purged, {"tools/runner/backend/runner.sh"})
+            self.assertIn("tools/secrets/backend/a1/.env.local-dev", plan.orphans)
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_stale_references_outside_blocks_only(self) -> None:
+        from yjcli.core.references import stale_references
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "AGENTS.md").write_text(
+                "<!-- yjcli:layout -->\n`tools/runner/` inside a block\n<!-- /yjcli:layout -->\n"
+                "- run: `make backend NAME=a1`\n- see tools/builder/GUIDE.md\n- skills in .cursor/skills/\n"
+                "- frontend/web/ app\n- backend/old/ service\n- yjcli/ is fine\n"
+            )
+            found = stale_references(root, llms=["claude"], plugins=["builder"], platforms=["backend"],
+                                     removed_services={"backend": ["old"]})
+            text = "\n".join(found)
+            self.assertNotIn("AGENTS.md:2", text)  # inside a yjcli block
+            for line, token in ((4, "make backend"), (6, ".cursor/skills"), (7, "frontend/"), (8, "backend/old")):
+                self.assertIn(f"AGENTS.md:{line} — `{token}`", text)
+            self.assertNotIn("AGENTS.md:5", text)  # builder is installed
+            self.assertNotIn("AGENTS.md:9", text)
+
+
 class ManifestTests(unittest.TestCase):
     def test_round_trip(self) -> None:
         m = Manifest(
@@ -227,7 +287,7 @@ class ManifestTests(unittest.TestCase):
             llms=["claude"],
             plugins=["secrets"],
             platforms={"backend": ["a1", "a2"]},
-            files={'a "b".md': FileRecord("seed", "x", "y")},
+            files={'a "b".md': FileRecord("seed", "x", "y"), "o.sh": FileRecord("seed", "x", "y", orphan=True)},
         )
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / ".yjcli" / "manifest.toml"

@@ -21,7 +21,8 @@ class ParsedNames:
 def parse_names(raw: str, *, existing: set[str] | frozenset[str] = frozenset()) -> ParsedNames:
     """Split on whitespace and/or commas; validate each name.
 
-    `existing` holds service names already on disk for the platform.
+    `existing` holds service names already on disk for the platform; naming one
+    of them is a no-op with a note.
     """
     result = ParsedNames()
     seen: set[str] = set()
@@ -37,7 +38,8 @@ def parse_names(raw: str, *, existing: set[str] | frozenset[str] = frozenset()) 
         elif token in RESERVED_SERVICE_NAMES:
             result.errors.append(f"'{token}': 예약된 이름입니다")
         elif token in existing:
-            result.errors.append(f"'{token}': 이미 있는 서비스입니다")
+            # Declarative: naming an existing service means "keep it", not an error.
+            result.notes.append(f"{token}: 이미 있음 (변경 없음)")
         else:
             result.names.append(token)
     return result

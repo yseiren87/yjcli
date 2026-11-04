@@ -56,10 +56,7 @@ Feature rules and orchestration live in background flow — not in listeners/`ap
 
 ## Contracts
 
-- Consume `backend-msa/proto/dist/{lang}` (symlink) only through a companion
-  `native_*` host or a generated web client — do not copy `.proto` sources
-  into `browser-extension/`. Browsers rarely speak gRPC directly; route
-  through the native host or a REST/gRPC-web gateway instead.
+- Consume `backend-msa/proto/dist/{lang}` (symlink) only through a companion `native_*` host or a generated web client — do not copy `.proto` sources into `browser-extension/`. Browsers rarely speak gRPC directly; route through the native host or a REST/gRPC-web gateway instead.
 
 ## native_host
 

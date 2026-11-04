@@ -25,6 +25,8 @@ class Draft:
     options: dict[str, dict[str, bool]] = field(default_factory=dict)
     # Steps answered on the command line (the wizard skips them).
     given: set[str] = field(default_factory=set)
+    # Also delete changed seeds whose owner is gone (env value files excepted).
+    purge: bool = False
     notes: list[str] = field(default_factory=list)
 
     def new_platforms(self, state: RepoState) -> list[str]:

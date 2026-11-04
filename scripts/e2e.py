@@ -387,8 +387,8 @@ def _(c: Case):
     c.contains("tools/builder/backend/builder.sh", ": mine")
     c.contains("tools/builder/GUIDE.md", "- `backend/`: `a1`, `a3`, `a4`")
     c.contains(".yjcli/manifest.toml", 'services = ["a1", "a3", "a4"]')
-    r = c.yjcli("service", "add", "-n", "backend=a3", "-y", expect=1)
-    c.output_has(r, "이미 있는 서비스")
+    r = c.yjcli("service", "add", "-n", "backend=a3", "-y")  # existing name: kept as is, not an error
+    c.output_has(r, "backend: a3: 이미 있음 (변경 없음)", "+ 생성 0개", "~ 변경 0개")
     r = c.yjcli("service", "add", "-n", "frontend=x", "-y", expect=1)
     c.output_has(r, "구성되지 않은 플랫폼")
 
@@ -402,7 +402,7 @@ def _(c: Case):
     c.contains("AGENTS.md", "`tools/builder/`")
     c.implement("tools/runner/backend/runner.sh", "run_one", "  exec mine")
     r = c.yjcli("--plugin", "builder", "-y")
-    c.output_has(r, "- 삭제", "tools/runner/backend/runner.sh: 사용자 파일이라 남겨 둡니다")
+    c.output_has(r, "- 삭제", "남겨 둔 파일 1개", "    tools/runner/backend/runner.sh", "--purge")
     c.absent("tools/runner/GUIDE.md", "tools/runner/cli", "tools/runner/backend/runner.ps1")
     c.exists("tools/runner/backend/runner.sh", "tools/secrets/backend/a1/.env.local-dev", "Makefile")
     c.lacks("Makefile", "tools/runner")
@@ -714,6 +714,63 @@ def _(c: Case):
     r = c.sh("make")
     c.output_has(r, "Platforms: " + " ".join(names))
     no_changes(c, c.yjcli("update", "--dry-run"))
+
+
+@case("25-delta-commands", "plugin/llm add·remove, --purge, 블록 밖 참조 경고, --name 기존 서비스")
+def _(c: Case):
+    c.yjcli("-l", "claude,cursor", "-n", "backend=a1", "--plugin", "runner", "-y")
+    # add / remove only what changes; the rest comes from the manifest
+    r = c.yjcli("plugin", "add", "deployer", "-y", expect=1)
+    c.output_has(r, "builder 가 필요합니다", "yjcli plugin add builder deployer")
+    c.yjcli("plugin", "add", "builder", "deployer", "-y")
+    c.contains(".yjcli/manifest.toml", 'plugins = ["runner", "builder", "deployer"]', 'llms = ["cursor", "claude"]')
+    r = c.yjcli("plugin", "add", "runner", "-y")
+    c.output_has(r, "runner: 이미 설치되어 있음 (변경 없음)", "+ 생성 0개")
+    r = c.yjcli("plugin", "remove", "builder", "-y", expect=1)
+    c.output_has(r, "yjcli plugin remove builder deployer")
+    r = c.yjcli("plugin", "add", "nope", "-y", expect=1)
+    c.output_has(r, "알 수 없는 플러그인: nope")
+
+    # removing a plugin: untouched files go, the implemented script stays as an orphan
+    c.implement("tools/runner/backend/runner.sh", "run_one", "  exec mine")
+    agents = c.dir / "AGENTS.md"
+    agents.write_text(agents.read_text() + "\n- Run locally: `make backend NAME=a1` (tools/runner/GUIDE.md)\n")
+    r = c.yjcli("plugin", "remove", "runner", "-y")
+    c.output_has(r, "남겨 둔 파일 1개", "tools/runner/backend/runner.sh", "--purge 로 함께 지울 수 있습니다",
+                 "블록 밖에 남은 참조", "AGENTS.md:")
+    c.absent("tools/runner/GUIDE.md", "tools/runner/backend/runner.ps1")
+    c.contains(".yjcli/manifest.toml", '"tools/runner/backend/runner.sh" = { policy = "seed"', "orphan = true")
+    line = next(i for i, l in enumerate(agents.read_text().splitlines(), 1) if "Run locally" in l)
+    c.output_has(r, f"AGENTS.md:{line} — `tools/runner`")  # line number of the file after the run
+    st = c.yjcli("status")
+    c.output_has(st, "남겨 둔 파일", "tools/runner/backend/runner.sh", "yjcli update --purge", "블록 밖에 남은 참조")
+    r = c.yjcli("update", "--purge", "--dry-run")
+    c.output_has(r, "tools/runner/backend/runner.sh (purge)")
+    c.exists("tools/runner/backend/runner.sh")
+    c.yjcli("update", "--purge", "-y")
+    c.absent("tools/runner")
+    c.lacks(".yjcli/manifest.toml", "orphan = true")
+
+    # env value files are never purged
+    (c.dir / "tools/secrets/backend/a1/.env.production").write_text("NAME=a1\nSECRET=x\n")
+    c.yjcli("service", "add", "-n", "backend=a2", "-y")
+    shutil.rmtree(c.dir / "backend/a1")
+    r = c.yjcli("update", "--purge", "-y")
+    c.output_has(r, "tools/secrets/backend/a1/.env.production")
+    c.exists("tools/secrets/backend/a1/.env.production")
+
+    # LLMs
+    c.yjcli("llm", "add", "codex", "-y")
+    c.exists(".agents/skills/yj-backend/SKILL.md")
+    c.yjcli("llm", "remove", "cursor", "-y")
+    c.absent(".cursor/skills/yj-backend")
+    r = c.yjcli("llm", "remove", "claude", "codex", "-y", expect=1)
+    c.output_has(r, "최소 1개")
+
+    # --name with an existing service is a no-op, not an error
+    r = c.yjcli("-n", "backend=a2,a3", "-y")
+    c.output_has(r, "backend: a2: 이미 있음 (변경 없음)", "backend/a3 (+)")
+    c.exists("backend/a3/.env.examples")
 
 
 # =============================================================================

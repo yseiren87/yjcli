@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from yjcli.core.planner import Plan
+from yjcli.core.planner import Plan, is_env_value
 from yjcli.core.selection import Draft, option_values
 
 _KIND_LABEL = {
@@ -75,8 +75,16 @@ def print_summary(
 
     for note in plan.notes:
         console.print(f"  · {note}", markup=False)
+    if plan.orphans:
+        purgeable = [rel for rel in plan.orphans if not is_env_value(rel)]
+        console.print(f"  남겨 둔 파일 {len(plan.orphans)}개 — 주인(플러그인·LLM·서비스)이 없어졌지만 수정되어 있어 지우지 않았습니다:",
+                      style="yellow", markup=False)
+        for rel in plan.orphans:
+            console.print(f"    {rel}", markup=False)
+        if purgeable:
+            console.print("    --purge 로 함께 지울 수 있습니다 (tools/secrets 의 env 값 파일은 제외)", markup=False)
     for warning in plan.warnings:
-        console.print(f"  [yellow]{warning}[/yellow]")
+        console.print(f"  {warning}", style="yellow", markup=False)
 
 
 def print_diffs(console: Console, plan: Plan, root: Path) -> None:

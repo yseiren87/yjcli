@@ -25,6 +25,7 @@ from yjcli.catalog.plugins import MAKEFILE_PLUGINS, MANAGED, PLUGIN_BY_ID, PLUGI
 from yjcli.catalog.skills import CORE_SKILL, SKILL_BY_ID, routing_rows, skills_for
 from yjcli.core import render as r
 from yjcli.core.manifest import MANIFEST_PATH, FileRecord, Manifest, dumps, sha256
+from yjcli.core.references import stale_references
 from yjcli.core.selection import Draft, option_values
 from yjcli.core.state import RepoState
 
@@ -73,6 +74,9 @@ class Plan:
     manifest: Manifest | None = None
     from_version: str | None = None  # yjcli version that wrote the previous manifest
     to_version: str = ""
+    # Changed files whose owner is gone, kept on disk (tracked as orphans).
+    orphans: list[str] = field(default_factory=list)
+    purge: bool = False
 
     def count(self, *kinds: str) -> int:
         return sum(1 for a in self.actions if a.kind in kinds)
@@ -444,24 +448,27 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     # .gitignore (merge block)
     _plan_gitignore(plan, root, _gitignore_block(), records)
 
-    # ---- files yjcli tracked before but no longer wants ----
+    # ---- files yjcli tracked before but no longer wants (owner gone) ----
+    plan.purge = draft.purge
     for rel, rec in old_files.items():
         if rel in records or rel in desired.files or rel in ("AGENTS.md", ".gitignore"):
             continue
         path = root / rel
         if not path.is_file():
             continue
-        if rec.policy == MANAGED:
-            if sha256(path.read_bytes()) == rec.sha256 or force:
-                plan.actions.append(Action("delete", rel))
-            else:
-                plan.warnings.append(f"! {rel}: 더 이상 관리하지 않지만 사용자가 수정해서 남겨 둡니다")
-        elif rec.template and sha256(path.read_bytes()) == rec.sha256 == rec.template:
+        disk = sha256(path.read_bytes())
+        if rec.policy == MANAGED and (disk == rec.sha256 or force):
+            plan.actions.append(Action("delete", rel))
+        elif rec.policy != MANAGED and rec.template and disk == rec.sha256 == rec.template:
             # Seed still identical to the template yjcli wrote (e.g. an unimplemented
             # script). Files adopted from the user never match their template hash.
             plan.actions.append(Action("delete", rel))
+        elif draft.purge and not is_env_value(rel):
+            plan.actions.append(Action("delete", rel, reason="purge"))
         else:
-            plan.notes.append(f"{rel}: 사용자 파일이라 남겨 둡니다 (더 이상 yjcli 가 관리하지 않음)")
+            # Changed by the user: keep it, remember it so status/--purge can find it later.
+            plan.orphans.append(rel)
+            records[rel] = FileRecord(rec.policy, rec.sha256, rec.template, orphan=True)
 
     # ---- removed platforms (validated: they have no services) ----
     if old:
@@ -479,11 +486,20 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
             for s in names:
                 if pid in platforms and s not in services.get(pid, []):
                     plan.notes.append(f"{pid}/{s}: 폴더가 없어 매니페스트에서 정리합니다")
-                    if (root / "tools" / "secrets" / pid / s).is_dir():
-                        plan.notes.append(f"tools/secrets/{pid}/{s}/: 서비스가 없는 환경 파일이 남아 있습니다")
 
     if any(a.kind == "create" and a.path.startswith("tools/secrets/") for a in plan.actions):
         plan.warnings.append("tools/secrets/ 는 평문으로 커밋됩니다. private 저장소에서만 사용하세요.")
+
+    removed_services = {
+        pid: [s for s in names if s not in services.get(pid, [])] for pid, names in (old.platforms if old else {}).items()
+    }
+    planned = {a.path: None if a.kind == "delete" else a.content.decode("utf-8", errors="replace")
+               for a in plan.actions if a.path in ("AGENTS.md", "CLAUDE.md") and (a.kind == "delete" or a.content)}
+    stale = stale_references(root, llms=llms, plugins=plugins, platforms=platforms,
+                             removed_services=removed_services, planned=planned)
+    if stale:
+        plan.warnings.append("블록 밖에 남은 참조 — 지금 구성에 없는 경로입니다. 직접 고치세요:")
+        plan.warnings += stale
 
     plan.manifest = Manifest(
         yjcli_version=version,
@@ -497,6 +513,11 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     if not path.is_file() or path.read_text(encoding="utf-8") != manifest_text:
         plan.actions.append(Action("overwrite" if path.is_file() else "create", str(MANIFEST_PATH), manifest_text.encode()))
     return plan
+
+
+def is_env_value(rel: str) -> bool:
+    """Env value files are data, not tooling: --purge never deletes them."""
+    return rel.startswith("tools/secrets/")
 
 
 def _is_executable(path: Path) -> bool:

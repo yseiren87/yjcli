@@ -62,9 +62,7 @@ infra  = modules/{module}.{ext} # config, http, db, output formatters
 
 ## Contracts
 
-- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a
-  command must call backend services directly; do not copy `.proto` sources
-  into `cli/`.
+- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a command must call backend services directly; do not copy `.proto` sources into `cli/`.
 
 ## Import direction
 

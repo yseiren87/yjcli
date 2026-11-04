@@ -13,8 +13,7 @@ description: >-
 
 ## Purpose
 
-Reduce AI cost and blast radius. Do not reinterpret the whole repo, add
-wrappers/layers, or read unrelated platforms.
+Reduce AI cost and blast radius. Do not reinterpret the whole repo, add wrappers/layers, or read unrelated platforms.
 
 1. Existing repo conventions win when clearer than this skill.
 2. Identify the platform root folder first, then load **only** that platform skill.
@@ -31,27 +30,19 @@ wrappers/layers, or read unrelated platforms.
   {service_name}/     # one deployable / one app — code only
 ```
 
-- Platform and service folders hold **code only**: source folders, stack files
-  (e.g. `package.json`) and the service's `.env.examples`. Run/build/deploy
-  tooling lives outside them (see Tooling below).
+- Platform and service folders hold **code only**: source folders, stack files (e.g. `package.json`) and the service's `.env.examples`. Run/build/deploy tooling lives outside them (see Tooling below).
 - `{platform}/proto/` is reserved for protobuf contracts; it is never a service.
 - Do not invent new platform roots or put app code at repo root.
-- Do not create a `Makefile`, `scripts/` folder or run/build script inside any
-  platform or service folder.
+- Do not create a `Makefile`, `scripts/` folder or run/build script inside any platform or service folder.
 
 ## Environment contract
 
-- Every service root has `.env.examples` — the committed field contract. Format
-  every entry as one comment line followed by one empty `FIELD=` line, with one
-  blank line between entries.
+- Every service root has `.env.examples` — the committed field contract. Format every entry as one comment line followed by one empty `FIELD=` line, with one blank line between entries.
 - Field sets come from the platform's env kind:
 {{env_kinds}}
-- `HOST`/`PORT` are required for `listen`. For `worker` they are optional — add
-  them only when the process really listens. `app` services need NAME/VERSION only.
-- Do not invent fields outside the contract; add a field to `.env.examples`
-  first, then wherever its values are kept.
-- Never commit a plain `.env`, and do not use Vite's `.env.local` convention
-  unless a thin loader maps it to this structure.
+- `HOST`/`PORT` are required for `listen`. For `worker` they are optional — add them only when the process really listens. `app` services need NAME/VERSION only.
+- Do not invent fields outside the contract; add a field to `.env.examples` first, then wherever its values are kept.
+- Never commit a plain `.env`, and do not use Vite's `.env.local` convention unless a thin loader maps it to this structure.
 
 ## Tooling
 
@@ -94,8 +85,7 @@ Missing domain does **not** mean collapse into entry. Still use flow + infra.
 Placement when unsure:
 
 1. Owned concept / shared policy across features? → domain  
-2. One feature’s IO / mapping / orchestration? → the platform-defined flow
-   boundary (commonly `services/{feature}`)
+2. One feature’s IO / mapping / orchestration? → the platform-defined flow boundary (commonly `services/{feature}`)
 3. Clients, config, logging, technical helpers? → infra (`modules`)  
 4. Bootstrap / register only? → entry (`apps` or platform entry files)  
 5. Otherwise do not invent a new home — extend an existing flow
@@ -103,9 +93,7 @@ Placement when unsure:
 UI clients default to **no `domain`**: model = API types; feature rules live in flow.  
 Exception only for heavy client-owned offline DB/engine concepts.
 
-UI platform skills may map flow and view to separate technical roots. Those
-roots must use the same feature boundary so one feature's flow and view remain
-easy to locate without mixing their roles.
+UI platform skills may map flow and view to separate technical roots. Those roots must use the same feature boundary so one feature's flow and view remain easy to locate without mixing their roles.
 
 ## Import direction
 
@@ -133,7 +121,6 @@ After: summarize files, boundaries, new files, test/migration risk briefly.
 
 ## Cross-platform contracts
 
-- Prefer generated clients / `{platform}/proto/dist/{lang}` (e.g.
-  `backend-msa/proto/dist/{lang}`) over hand-copied DTOs.
+- Prefer generated clients / `{platform}/proto/dist/{lang}` (e.g. `backend-msa/proto/dist/{lang}`) over hand-copied DTOs.
 - Do not import another platform's source tree.
 - Do not read unrelated platforms unless the user task explicitly spans them.
