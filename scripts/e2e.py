@@ -464,18 +464,27 @@ def _(c: Case):
     c.contains(".gitignore", "!tools/secrets/")
 
 
-@case("11-modified-managed", "사용자가 고친 관리 파일(GUIDE.md)은 건너뛰고 --force 로만 덮어씀")
+@case("11-modified-managed", "로컬에서 고친 관리 파일·지운 AGENTS.md 블록도 한 번에 갱신하고 결과에 확인할 것으로 표시")
 def _(c: Case):
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
     guide = c.dir / "tools/runner/GUIDE.md"
     guide.write_text(guide.read_text() + "\nlocal tweak\n")
-    r = c.yjcli("-y")
-    c.output_has(r, "tools/runner/GUIDE.md: 사용자가 수정함")
-    c.contains("tools/runner/GUIDE.md", "local tweak")
+    makefile = c.dir / "Makefile"
+    makefile.write_text(makefile.read_text() + "\n# local tweak\n")
+    agents = c.dir / "AGENTS.md"
+    text = agents.read_text()
+    start, end = text.index("<!-- yjcli:layout -->"), text.index("<!-- /yjcli:layout -->") + len("<!-- /yjcli:layout -->")
+    agents.write_text(text[:start] + "my layout notes" + text[end:])
     st = c.yjcli("status")
-    c.output_has(st, "! tools/runner/GUIDE.md")
-    c.yjcli("--force", "-y")
+    c.output_has(st, "! tools/runner/GUIDE.md", "다음 업데이트 때 덮어씀")
+    r = c.yjcli("update", "-y")
+    c.output_has(r, "완료 — 적용 결과", "~ 덮어쓰기     tools/runner/GUIDE.md (로컬 수정 덮어씀)",
+                 "~ 덮어쓰기     Makefile (로컬 수정 덮어씀)", "~ 블록 갱신    AGENTS.md", "확인할 것 3개",
+                 "tools/runner/GUIDE.md: 로컬 수정을 덮어썼습니다 — 프로젝트 메모는 AGENTS.md 에 적으세요",
+                 "Makefile: 로컬 수정을 덮어썼습니다", "<!-- yjcli:layout --> 블록이 없어 파일 끝에 다시 넣었습니다")
     c.lacks("tools/runner/GUIDE.md", "local tweak")
+    c.lacks("Makefile", "local tweak")
+    c.contains("AGENTS.md", "my layout notes", "<!-- yjcli:layout -->", "`tools/runner/`")
     no_changes(c, c.yjcli("-y"))
 
 
@@ -582,7 +591,7 @@ with create_pipe_input() as inp:
 '''
     c.dir.mkdir(parents=True, exist_ok=True)
     r = c._run([sys.executable, "-c", code, str(c.dir)], 0, cwd=REPO, label="wizard (scripted keys)")
-    c.output_has(r, "완료.")
+    c.output_has(r, "완료 — 적용 결과")
     c.exists("backend/a1/apps", "backend/a2/apps", "frontend/f1/package.json", ".cursor/skills/yj-backend/SKILL.md",
              ".claude/skills/yj-frontend/SKILL.md", "tools/runner/backend/runner.sh", "tools/builder/frontend/builder.sh",
              "tools/secrets/frontend/f1/.env.local-dev")
@@ -647,8 +656,8 @@ def _(c: Case):
     skill = c.dir / ".claude/skills/yj-backend/SKILL.md"
     skill.write_text(skill.read_text() + "\nhand edit\n")
     r = c.yjcli("update", "-y")
-    c.output_has(r, "사용자가 수정함", ".yjcli/skills/yj-backend.md 에 추가 규칙을 적으세요")
-    c.yjcli("update", "--force", "-y")
+    c.output_has(r, "로컬 수정을 덮어썼습니다 — 스킬 규칙은 .yjcli/skills/yj-backend.md 에 적으세요")
+    c.lacks(".claude/skills/yj-backend/SKILL.md", "hand edit")
     extra.unlink()
     c.yjcli("update", "-y")
     c.lacks(".agents/skills/yj-backend/SKILL.md", "Project-specific additions")

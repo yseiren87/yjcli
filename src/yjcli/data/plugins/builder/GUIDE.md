@@ -1,6 +1,6 @@
 # Builder guide
 
-> Managed by yjcli — regenerated on every run. Do not edit; put project notes in `AGENTS.md`. The scripts under `tools/builder/<platform>/` are yours.
+> Managed by yjcli — regenerated on every run. Do not edit; put project notes in `AGENTS.md`. The scripts under `tools/builder/` are repository-owned: keep them in line with this guide.
 
 The builder turns each service into a runnable build under `dist/`. It only builds — deploying is the deployer's job.
 
@@ -20,27 +20,23 @@ The builder turns each service into a runnable build under `dist/`. It only buil
 - Every service builds into **`dist/<platform>/<service>/`** at the repository root (never inside the service folder).
 - That folder alone must be runnable: the deployer copies it as-is.
 - It must not contain env value files (`.env.*`). Env values are supplied when the build runs, not when it is built.
-- `dist/<platform>/<service>/BUILD_INFO` records `platform`, `service`, `environment`, `version`, `built_at`. It is written only after a successful build and marks the folder as complete; a failed build leaves no output.
+- `dist/<platform>/<service>/BUILD_INFO` records `platform`, `service`, `environment`, `version`, `built_at`. Write it only after a successful build: it marks the folder as complete, and the deployer refuses a folder without it. A failed build leaves no output.
+- Version: the service's `package.json` / `pyproject.toml` `version`, else the `VERSION` env var, else `unknown`.
 - `dist/` is git-ignored.
 
-## What is already implemented
+## Behavior
 
-Each `builder.sh` / `builder.ps1` ships a working skeleton:
-
-- Checks `<env>` and the optional service; builds every service when omitted.
-- Empties `dist/<platform>/<service>/` before each build.
-- Runs your build function inside `<platform>/<service>/`, then writes `BUILD_INFO`. Version: the service's `package.json` / `pyproject.toml` `version`, else the `VERSION` env var, else `unknown`.
-- Stops at the first failing service with a non-zero exit code.
+- Reject an `<env>` other than `development` / `production`. Build every service when no service is given; an unknown name is an error.
+- Empty `dist/<platform>/<service>/` before each build.
+- Stop at the first failing service with a non-zero exit code.
 {{#if platform_proto}}
-- On platforms that need the shared proto contract (`backend-msa`), runs `tools/builder/proto/builder.sh` once before the services.
+- On platforms that need the shared proto contract (`backend-msa`), run `tools/builder/proto/builder.sh` once before the services.
 {{/if}}
 
-## What you implement
+## Structure
 
-- `builder.sh`: `build_one <service>` · `builder.ps1`: `Invoke-BuildOne <service>` — build one service into `$OUT` / `$Out`.
-- Available: the environment, the output folder, and the path of `tools/secrets/<platform>/<service>/.env.<env>` (`$ENV_FILE` / `$EnvFile`). Read it only for values that must be fixed at build time (e.g. a frontend bundle); never copy it into the output.
-
-Until implemented they print a pointer to this guide and fail.
+- Keep the per-service build in one function: `build_one <service>` (`builder.sh`) / `Invoke-BuildOne <service>` (`builder.ps1`). It runs inside `<platform>/<service>/` and writes into `$OUT` / `$Out`.
+- It can use the environment, the output folder, and the path of `tools/secrets/<platform>/<service>/.env.<env>` (`$ENV_FILE` / `$EnvFile`). Read that file only for values that must be fixed at build time (e.g. a frontend bundle); never copy it into the output.
 
 {{#if platform_proto}}
 ## Proto contract
@@ -52,8 +48,8 @@ The shared gRPC/protobuf contract lives at the repository root in `proto/` (sche
 | `make proto-build` / `./make.ps1 proto-build` | `tools/builder/proto/builder.sh` / `builder.ps1` — every language under `proto/dist/` |
 | `… PROTO_LANG=<language>` | same script, one language |
 
-- Implement one function per language: `gen_<language>` (`builder.sh`) / `Invoke-Gen<Language>` (`builder.ps1`). The skeleton finds the languages, skips the run when there is no `.proto` yet, and fails with a pointer here when a function is missing (add one when you add a language later).
-- Output goes to `proto/dist/<language>/` — a library package, not a deployable build (`dist/` at the root is unrelated). Each folder already has its manifest: Go `go.mod` (module `{{proto_go_module}}`), Dart `pubspec.yaml` (`{{proto_dart_package}}`, code in `lib/`), Python `pyproject.toml` (`{{proto_python_dist}}`, package `{{proto_python_package}}/`). Keep the manifest; regenerate only the code, and remove code of deleted `.proto` files.
+- One function per language: `gen_<language>` (`builder.sh`) / `Invoke-Gen<Language>` (`builder.ps1`). Languages are the folders under `proto/dist/`. Skip the run when there is no `.proto` yet, and fail with a pointer here when a language has no function (add one when you add a language later).
+- Output goes to `proto/dist/<language>/` — a library package, not a deployable build (`dist/` at the root is unrelated). Each folder has its manifest: Go `go.mod` (module `{{proto_go_module}}`), Dart `pubspec.yaml` (`{{proto_dart_package}}`, code in `lib/`), Python `pyproject.toml` (`{{proto_python_dist}}`, package `{{proto_python_package}}/`). Keep the manifest; regenerate only the code, and remove code of deleted `.proto` files.
 - Keep only what a consumer needs: generated code plus the manifest (Go also `go.sum` after `go mod tidy`). No lock files (`pubspec.lock`, `uv.lock`) — consumers own those.
 - Consumers use a path dependency on `proto/dist/<language>/` (Go `replace`, Dart `path:`, Python editable path), never a copy of the `.proto` files.
 - protoc is the standard (buf is not used). Generated code is committed so consumers and CI build without protoc.
@@ -63,8 +59,8 @@ The shared gRPC/protobuf contract lives at the repository root in `proto/` (sche
 
 - Build for where the service will run. If the deploy target is a Linux container, produce something that runs there (e.g. `GOOS=linux` for Go, or dependencies installed for Linux).
 - `builder.sh` and `builder.ps1` produce the same output.
-- `builder.sh` must work on macOS's bash 3.2.
+- `builder.sh` works on macOS's bash 3.2; `builder.ps1` stays ASCII-only.
 
 ## More than one script
 
-yjcli ships one entry script per platform. That is a starting point, not a limit: when a platform needs more (per-language build steps, per-service scripts, a shared helper), add files under `tools/builder/<platform>/` or `tools/builder/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.
+One entry script per platform is a starting point, not a limit: when a platform needs more (per-language build steps, per-service scripts, a shared helper), add files under `tools/builder/<platform>/` or `tools/builder/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.

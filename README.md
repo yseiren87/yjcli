@@ -115,9 +115,13 @@ yjcli plan --diff                          # show the plan only
 
 | File kind | On update |
 |-----------|-----------|
-| managed (skills, `CLAUDE.md`, `tools/*/GUIDE.md`, `Makefile`, `make.ps1`) | refreshed; skipped with a warning if you edited it (`--force` overwrites) |
-| blocks (`AGENTS.md` `<!-- yjcli:rules/skills/layout -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated; everything outside is yours |
-| seed (`AGENTS.md` body, env files, `tools/*/<platform>/*.{sh,ps1}`, settings) | created once (when its owner is new, or when a newer yjcli adds it); yours afterwards — deleting one opts out |
+| managed (skills, `CLAUDE.md`, `tools/*/GUIDE.md`, `Makefile`, `make.ps1`) | always refreshed; a local edit is overwritten and listed under **to check** (a same-named file yjcli never wrote is skipped unless `--force`) |
+| blocks (`AGENTS.md` `<!-- yjcli:rules/skills/layout -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated; everything outside is yours (a block whose markers were removed is appended again at the end) |
+| seed (`AGENTS.md` body, env files, `tools/*/<platform>/*.{sh,ps1}`, settings) | created once (when its owner is new, or when a newer yjcli adds it); yours afterwards — deleting one opts out. When its starting template changes, it is left as is and listed under **to check** |
+
+Tool scripts follow their `tools/<tool>/GUIDE.md`: the guide is the contract and is updated with yjcli, the scripts are the project's implementation of it. After an update, re-check the scripts against any guide that changed.
+
+An update never stops halfway: it applies everything, then prints one result — every created, changed and deleted file, followed by **to check** (overwritten local edits, changed seed templates, re-added blocks, left-over files, warnings).
 
 Customize a skill without losing updates: write the extra rules in `.yjcli/skills/<skill>.md` (e.g. `.yjcli/skills/yj-backend.md`). yjcli appends them to that skill for every LLM on each render. Put project-wide agent rules under `### Project rules` in AGENTS.md (outside the blocks).
 

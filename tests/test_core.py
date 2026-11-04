@@ -157,6 +157,31 @@ class PlannerTests(unittest.TestCase):
             self.assertIn("tools/secrets/backend/a2/.env.production", created)
             self.assertNotIn("tools/secrets/backend/a1/.env.production", created)  # deleted on purpose
 
+    def test_update_overwrites_local_edits_and_reports_them(self) -> None:
+        from yjcli.core import executor
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executor.apply(self._plan(root, llm=["claude"], name=["backend=a1"], plugin=["runner"]), root)
+            guide = root / "tools/runner/GUIDE.md"
+            guide.write_text(guide.read_text() + "local tweak\n")
+            agents = root / "AGENTS.md"
+            agents.write_text(r.replace_block(agents.read_text(), "layout", "x").replace("<!-- yjcli:layout -->\nx\n<!-- /yjcli:layout -->", ""))
+            plan = self._plan(root)
+            actions = {a.path: a for a in plan.actions}
+            self.assertEqual(actions["tools/runner/GUIDE.md"].reason, "로컬 수정 덮어씀")
+            self.assertIn("<!-- yjcli:layout -->", actions["AGENTS.md"].content.decode())
+            self.assertEqual(len(plan.review), 2, plan.review)
+            self.assertEqual(plan.warnings, [])
+
+    def test_file_yjcli_never_wrote_is_skipped(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CLAUDE.md").write_text("hand made\n")
+            plan = self._plan(root, llm=["claude"], name=["backend=a1"], plugin=["none"])
+            self.assertNotIn("CLAUDE.md", {a.path for a in plan.actions})
+            self.assertTrue(any(w.startswith("! CLAUDE.md") for w in plan.warnings), plan.warnings)
+
     def test_deployer_without_builder_is_an_error(self) -> None:
         with TemporaryDirectory() as tmp:
             state = read_state(Path(tmp))

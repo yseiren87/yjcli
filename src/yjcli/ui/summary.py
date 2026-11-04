@@ -37,8 +37,10 @@ def _platforms_text(plan: Plan, draft: Draft) -> str:
 
 
 def print_summary(
-    console: Console, plan: Plan, draft: Draft, *, details: bool = False, diff_root: Path | None = None
+    console: Console, plan: Plan, draft: Draft, *, details: bool = False, diff_root: Path | None = None,
+    brief: bool = False,
 ) -> None:
+    """The plan before applying. `brief`: selection table only (print_result follows right away)."""
     title = "계획 요약 — " + ("신규 설치" if plan.mode == "new" else "업데이트")
     table = Table(title=title, show_header=False, title_justify="left")
     table.add_column(style="bold")
@@ -52,7 +54,23 @@ def print_summary(
     table.add_row("서비스", _services_text(plan))
     table.add_row("스킬(자동)", ", ".join(plan.skills))
     console.print(table)
+    if brief:
+        return
+    _print_changes(console, plan, details=details)
+    if diff_root is not None:
+        print_diffs(console, plan, diff_root)
+    _print_attention(console, plan)
 
+
+def print_result(console: Console, plan: Plan) -> None:
+    """Everything one run did, in one place: what changed, then what to look at."""
+    console.print()
+    console.print("[green]완료 — 적용 결과[/green]")
+    _print_changes(console, plan, details=False)
+    _print_attention(console, plan)
+
+
+def _print_changes(console: Console, plan: Plan, *, details: bool) -> None:
     counts = [
         ("+ 생성", plan.count("create", "mkdir")),
         ("~ 변경", plan.count("overwrite", "merge", "chmod")),
@@ -60,29 +78,35 @@ def print_summary(
         ("- 삭제", plan.count("delete", "rmtree")),
     ]
     console.print("  " + "   ".join(f"{label} {n}개" for label, n in counts))
+    # A new install creates many files: list them only on request. Updates list every change.
+    shown = [a for a in plan.actions if details or plan.mode == "update" or a.kind not in ("create", "mkdir")]
+    for action in shown:
+        if action.path.startswith(".yjcli/manifest"):
+            continue
+        label = _KIND_LABEL.get(action.kind, action.kind)
+        extra = f" ({action.reason})" if action.reason else ""
+        console.print(f"    {label:<10} {action.path}{extra}", markup=False)
+    if plan.mode == "update" and not any(not a.path.startswith(".yjcli/manifest") for a in plan.actions):
+        console.print("    바뀐 파일 없음", markup=False)
 
-    if details or plan.mode == "update":
-        shown = [a for a in plan.actions if details or a.kind not in ("create", "mkdir")]
-        for action in shown:
-            label = _KIND_LABEL.get(action.kind, action.kind)
-            extra = f" ({action.reason})" if action.reason else ""
-            console.print(f"    {label:<10} {action.path}{extra}", markup=False)
 
-    if diff_root is not None:
-        print_diffs(console, plan, diff_root)
-
+def _print_attention(console: Console, plan: Plan) -> None:
     for note in plan.notes:
         console.print(f"  · {note}", markup=False)
+    items = len(plan.review) + len(plan.orphans) + len(plan.warnings)
+    if not items:
+        return
+    console.print(f"  확인할 것 {items}개:", style="yellow", markup=False)
+    for item in plan.review:
+        console.print(f"    · {item}", markup=False)
     if plan.orphans:
-        purgeable = [rel for rel in plan.orphans if not is_env_value(rel)]
-        console.print(f"  남겨 둔 파일 {len(plan.orphans)}개 — 주인(플러그인·LLM·서비스)이 없어졌지만 수정되어 있어 지우지 않았습니다:",
-                      style="yellow", markup=False)
+        console.print(f"    · 남겨 둔 파일 {len(plan.orphans)}개 — 주인(플러그인·LLM·서비스)이 없어졌지만 수정되어 있어 지우지 않았습니다:", markup=False)
         for rel in plan.orphans:
-            console.print(f"    {rel}", markup=False)
-        if purgeable:
-            console.print("    --purge 로 함께 지울 수 있습니다 (tools/secrets 의 env 값 파일은 제외)", markup=False)
+            console.print(f"        {rel}", markup=False)
+        if any(not is_env_value(rel) for rel in plan.orphans):
+            console.print("      --purge 로 함께 지울 수 있습니다 (tools/secrets 의 env 값 파일은 제외)", markup=False)
     for warning in plan.warnings:
-        console.print(f"  {warning}", style="yellow", markup=False)
+        console.print(f"    {warning}", style="yellow", markup=False)
 
 
 def print_diffs(console: Console, plan: Plan, root: Path) -> None:
@@ -102,7 +126,8 @@ def print_diffs(console: Console, plan: Plan, root: Path) -> None:
 
 
 def print_next_steps(console: Console, plan: Plan) -> None:
-    console.print("[green]완료.[/green]")
+    print_result(console, plan)
+    console.print()
     first = next(((p, s[0]) for p, s in plan.services.items() if s), None)
     if first:
         p, s = first

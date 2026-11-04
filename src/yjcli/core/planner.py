@@ -7,8 +7,8 @@ The plan is built in two halves and merged:
                    (tools/secrets/, every service), plugin files
 
 Every tracked file carries a policy:
-  managed  yjcli owns it; refreshed on every run (skipped with a warning if the
-           user changed it since yjcli wrote it, unless --force)
+  managed  yjcli owns it; refreshed on every run (a local edit is overwritten and
+           reported; a file yjcli never wrote is skipped unless --force)
   seed     created once when its owner (LLM/platform/service/plugin) is new;
            user-owned afterwards
   merge    user file with a yjcli block regenerated in place
@@ -79,6 +79,8 @@ class Plan:
     # Changed files whose owner is gone, kept on disk (tracked as orphans).
     orphans: list[str] = field(default_factory=list)
     purge: bool = False
+    # Things to look at after applying (overwritten local edits, changed seed templates, re-added blocks).
+    review: list[str] = field(default_factory=list)
 
     def count(self, *kinds: str) -> int:
         return sum(1 for a in self.actions if a.kind in kinds)
@@ -445,24 +447,28 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
                 else:
                     plan.kept.append(rel)
                 continue
-            user_changed = rec is None or sha256(disk) != rec.sha256
-            if user_changed and not force:
-                why = "사용자가 수정함" if rec else "yjcli 가 만들지 않은 파일이 이미 있음"
-                plan.warnings.append(f"! {rel}: {why} — 건너뜀 (--force 로 덮어쓰기)")
-                if rel.endswith("/SKILL.md"):
-                    skill_id = rel.rsplit("/", 2)[-2]
-                    plan.warnings.append(f"  스킬은 직접 고치지 말고 {ADDITIONS_DIR / (skill_id + '.md')} 에 추가 규칙을 적으세요")
-                if rec:
-                    records[rel] = rec
+            if rec is None and not force:
+                # A file yjcli never wrote (e.g. a hand-made CLAUDE.md before the first setup).
+                plan.warnings.append(f"! {rel}: yjcli 가 만들지 않은 파일이 이미 있음 — 건너뜀 (--force 로 덮어쓰기)")
                 continue
-            plan.actions.append(Action("overwrite", rel, spec.content, spec.executable, "forced" if user_changed else ""))
+            reason = ""
+            if rec is None or sha256(disk) != rec.sha256:
+                # yjcli owns it: always refreshed; the local edit is reported so it can be moved.
+                reason = "로컬 수정 덮어씀"
+                hint = "git diff 로 확인하세요"
+                if rel.endswith("/SKILL.md"):
+                    hint = f"스킬 규칙은 {ADDITIONS_DIR / (rel.rsplit('/', 2)[-2] + '.md')} 에 적으세요"
+                elif rel.endswith("/GUIDE.md"):
+                    hint = "프로젝트 메모는 AGENTS.md 에 적으세요"
+                plan.review.append(f"{rel}: 로컬 수정을 덮어썼습니다 — {hint}")
+            plan.actions.append(Action("overwrite", rel, spec.content, spec.executable, reason))
             records[rel] = FileRecord(MANAGED, sha256(spec.content))
             continue
         # seed
         if exists:
             plan.kept.append(rel)
             if rec and rec.template and spec.template_hash and rec.template != spec.template_hash:
-                plan.notes.append(f"{rel}: 템플릿이 바뀌었습니다 (사용자 파일이라 적용하지 않음)")
+                plan.review.append(f"{rel}: 시작 템플릿이 바뀌었습니다 (프로젝트 파일이라 그대로 둠) — {_guide_for(rel)}")
             records[rel] = FileRecord(SEED, rec.sha256 if rec else sha256(path.read_bytes()), spec.template_hash)
         elif spec.introduce or rec is None:
             # New owner, or a seed this repo never had (added by a newer yjcli).
@@ -543,6 +549,13 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     return plan
 
 
+def _guide_for(rel: str) -> str:
+    parts = rel.split("/")
+    if len(parts) >= 3 and parts[0] == "tools" and parts[1] != "secrets":
+        return f"tools/{parts[1]}/GUIDE.md 기준으로 확인하세요"
+    return "필요하면 직접 반영하세요"
+
+
 def is_env_value(rel: str) -> bool:
     """Env value files are data, not tooling: --purge never deletes them."""
     return rel.startswith("tools/secrets/")
@@ -565,9 +578,10 @@ def _plan_agents(plan, root, template, blocks: dict[str, str], old_files, record
     for name, body in blocks.items():
         replaced = r.replace_block(updated, name, body)
         if replaced is None:
-            plan.warnings.append(f"! AGENTS.md: <!-- yjcli:{name} --> 블록이 없어 갱신하지 않습니다")
-        else:
-            updated = replaced
+            # Markers removed by hand: append the block again instead of skipping it.
+            replaced = f"{updated.rstrip()}\n\n<!-- yjcli:{name} -->\n{body.rstrip()}\n<!-- /yjcli:{name} -->\n"
+            plan.review.append(f"AGENTS.md: <!-- yjcli:{name} --> 블록이 없어 파일 끝에 다시 넣었습니다 — 위치를 확인하세요")
+        updated = replaced
     if updated != text:
         plan.actions.append(Action("merge", rel, updated.encode()))
     else:

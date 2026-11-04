@@ -1,6 +1,6 @@
 # Deployer guide
 
-> Managed by yjcli — regenerated on every run. Do not edit; put project notes in `AGENTS.md`. The scripts under `tools/deployer/<platform>/` are yours.
+> Managed by yjcli — regenerated on every run. Do not edit; put project notes in `AGENTS.md`. The scripts under `tools/deployer/` are repository-owned: keep them in line with this guide.
 
 The deployer ships what the builder put in `dist/`. It never builds.
 
@@ -15,27 +15,23 @@ The deployer ships what the builder put in `dist/`. It never builds.
 
 {{service_list}}
 
-## What is already implemented
+## Behavior
 
-Each `deployer.sh` / `deployer.ps1` ships a working skeleton:
+- Reject an `<env>` other than `development` / `production`. Deploy every service when no service is given; an unknown name is an error.
+- Before deploying anything, check that every service has a complete build (`dist/<platform>/<service>/BUILD_INFO`) and `tools/secrets/<platform>/<service>/.env.<env>`. If one is missing, deploy nothing and say which build to run.
+- Warn when `BUILD_INFO` says the build was made for another environment.
+- Stop at the first failing service with a non-zero exit code.
 
-- Checks `<env>` and the optional service; deploys every service when omitted.
-- Before deploying anything, checks that every service has a complete build (`dist/<platform>/<service>/BUILD_INFO`) and `tools/secrets/<platform>/<service>/.env.<env>`; otherwise it fails and tells you which build to run.
-- Warns when `BUILD_INFO` says the build was made for another environment.
-- Runs your deploy function inside `dist/<platform>/<service>/`, stopping at the first failure with a non-zero exit code.
+## Structure
 
-## What you implement
-
-- `deployer.sh`: `deploy_one <service>` · `deployer.ps1`: `Invoke-DeployOne <service>` — deploy one service from `$IN` / `$In`.
-- Available: the environment, the build folder, the env file path (`$ENV_FILE` / `$EnvFile`) and the script folder (`$SCRIPT_DIR` / `$ScriptDir`).
-
-Until implemented they print a pointer to this guide and fail.
+- Keep the per-service deploy in one function: `deploy_one <service>` (`deployer.sh`) / `Invoke-DeployOne <service>` (`deployer.ps1`). It runs inside `dist/<platform>/<service>/` and reads from `$IN` / `$In`.
+- It can use the environment, the build folder, the env file path (`$ENV_FILE` / `$EnvFile`) and the script folder (`$SCRIPT_DIR` / `$ScriptDir`).
 
 ## Requirements
 
 - Input is `dist/<platform>/<service>/` only. Do not rebuild from source here.
 - Env values come from `tools/secrets/<platform>/<service>/.env.<env>` at **run time**, so one build works in any environment.
-- `deployer.sh` and `deployer.ps1` behave the same.
+- `deployer.sh` and `deployer.ps1` behave the same. `deployer.sh` works on macOS's bash 3.2; `deployer.ps1` stays ASCII-only.
 
 ### Docker
 
@@ -51,4 +47,4 @@ Other targets (static hosting, scp, app stores, …) follow the same rule: the i
 
 ## More than one script
 
-yjcli ships one entry script per platform. That is a starting point, not a limit: when a platform needs more (Dockerfiles, per-service deploy scripts, rollout and health-check helpers), add files under `tools/deployer/<platform>/` or `tools/deployer/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.
+One entry script per platform is a starting point, not a limit: when a platform needs more (Dockerfiles, per-service deploy scripts, rollout and health-check helpers), add files under `tools/deployer/<platform>/` or `tools/deployer/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.

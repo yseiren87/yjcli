@@ -151,7 +151,9 @@ def run(
         if errors:
             _fail(errors)
         plan = make_plan(draft)
-        print_summary(console, plan, draft, details=dry_run, diff_root=root if diff else None)
+        # Applying right away: the result below lists every change and what to check, once.
+        print_summary(console, plan, draft, details=dry_run, diff_root=root if diff else None,
+                      brief=not dry_run and not diff)
         if dry_run:
             return
 
@@ -395,7 +397,7 @@ def status(path: PathOpt = Path(".")) -> None:
         if rec.policy == MANAGED and target.is_file() and manifest_mod.sha256(target.read_bytes()) != rec.sha256:
             changed.append(rel)
     if changed:
-        console.print("[yellow]사용자가 수정한 관리 파일 (업데이트 때 건너뜀):[/yellow]")
+        console.print("[yellow]로컬에서 수정한 관리 파일 (다음 업데이트 때 덮어씀 — 옮겨 둘 내용이 있는지 확인):[/yellow]")
         for rel in changed:
             console.print(f"  ! {rel}", markup=False)
     orphans = [rel for rel, rec in sorted(m.files.items()) if rec.orphan and (path / rel).is_file()]
