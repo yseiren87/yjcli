@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 MANIFEST_PATH = Path(".yjcli") / "manifest.toml"
+CONTRACT_PLATFORM = "proto"  # catalog.platforms.PROTO (kept here to avoid a catalog import)
 SCHEMA = 1
 
 
@@ -27,7 +28,8 @@ class Manifest:
     yjcli_version: str
     llms: list[str] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)
-    platforms: dict[str, list[str]] = field(default_factory=dict)  # platform -> services
+    # platform -> services (stored as `languages` for the contract platform)
+    platforms: dict[str, list[str]] = field(default_factory=dict)
     files: dict[str, FileRecord] = field(default_factory=dict)
 
 
@@ -49,13 +51,20 @@ def is_older(installed: str, recorded: str) -> bool:
 
 
 # Oldest yjcli whose repos this version still updates (no backward compatibility
-# across the 0.4 tooling change: older repos are rebuilt, see README).
-MIN_SUPPORTED = "0.4.0"
+# across the 0.5 proto restructure: older repos are rebuilt, see README).
+MIN_SUPPORTED = "0.5.0"
 
 
-def unsupported(recorded: str) -> bool:
-    """True when the manifest was written by a yjcli older than MIN_SUPPORTED."""
-    return is_older(recorded, MIN_SUPPORTED)
+def unsupported(recorded: str, installed: str | None = None) -> bool:
+    """True when the manifest was written by a yjcli older than MIN_SUPPORTED.
+
+    The minimum never exceeds the installed version, so an unreleased build whose
+    version was not bumped yet still works on the repos it writes.
+    """
+    minimum = MIN_SUPPORTED
+    if installed and version_key(installed) and is_older(installed, MIN_SUPPORTED):
+        minimum = installed
+    return is_older(recorded, minimum)
 
 
 def sha256(data: bytes) -> str:
@@ -73,7 +82,7 @@ def load(root: Path) -> Manifest | None:
         yjcli_version=data.get("yjcli_version", ""),
         llms=list(data.get("llms", [])),
         plugins=list(data.get("plugins", [])),
-        platforms={k: list(v.get("services", [])) for k, v in data.get("platforms", {}).items()},
+        platforms={k: list(v.get("services", v.get("languages", []))) for k, v in data.get("platforms", {}).items()},
         files={
             k: FileRecord(policy=v["policy"], sha256=v["sha256"], template=v.get("template"),
                           orphan=bool(v.get("orphan", False)))
@@ -101,7 +110,8 @@ def dumps(manifest: Manifest) -> str:
         f"plugins = {_list(manifest.plugins)}",
     ]
     for platform, services in manifest.platforms.items():
-        lines += ["", f"[platforms.{_q(platform)}]", f"services = {_list(services)}"]
+        key = "languages" if platform == CONTRACT_PLATFORM else "services"
+        lines += ["", f"[platforms.{_q(platform)}]", f"{key} = {_list(services)}"]
     lines += ["", "[files]"]
     for path in sorted(manifest.files):
         rec = manifest.files[path]

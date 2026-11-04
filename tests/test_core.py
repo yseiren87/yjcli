@@ -45,9 +45,9 @@ class NameTests(unittest.TestCase):
             self.assertEqual(parse_names(raw).names, ["a1", "a2"], raw)
 
     def test_errors_and_duplicates(self) -> None:
-        parsed = parse_names("ok -bad proto ok taken", existing={"taken"})
+        parsed = parse_names("ok -bad ok taken", existing={"taken"})
         self.assertEqual(parsed.names, ["ok"])
-        self.assertEqual(len(parsed.errors), 2)
+        self.assertEqual(len(parsed.errors), 1)
         self.assertEqual(len(parsed.notes), 2)  # duplicate + existing "taken" (kept as is)
 
 
@@ -116,7 +116,7 @@ class SkillCatalogTests(unittest.TestCase):
 
 def plan_for(root: Path, **args):
     state = read_state(root)
-    base = dict(mode=None, llm=None, platform=None, plugin=None, name=None, option=None)
+    base = dict(mode=None, llm=None, platform=None, plugin=None, name=None)
     draft, errors = from_args(state, **{**base, **args})
     assert errors == [], errors
     fill_from_manifest(draft, state)
@@ -130,7 +130,7 @@ class PlannerTests(unittest.TestCase):
     def test_missing_lists_everything(self) -> None:
         with TemporaryDirectory() as tmp:
             state = read_state(Path(tmp))
-            draft, _ = from_args(state, mode=None, llm=None, platform=["backend"], plugin=None, name=None, option=None)
+            draft, _ = from_args(state, mode=None, llm=None, platform=["backend"], plugin=None, name=None)
             gaps = " ".join(missing(draft, state))
             for flag in ("--llm", "--plugin", "--name backend="):
                 self.assertIn(flag, gaps)
@@ -161,23 +161,49 @@ class PlannerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             state = read_state(Path(tmp))
             _, errors = from_args(state, mode=None, llm=["claude"], platform=None, plugin=["deployer"],
-                                  name=["backend=a1"], option=None)
+                                  name=["backend=a1"])
             self.assertTrue(any("builder" in e for e in errors), errors)
 
-    def test_platform_scripts_render_proto_only_where_possible(self) -> None:
+    def test_proto_contract(self) -> None:
         with TemporaryDirectory() as tmp:
-            plan = self._plan(Path(tmp), llm=["claude"], name=["backend-msa=u", "frontend=f"], plugin=["all"])
+            root = Path(tmp) / "My Shop"
+            root.mkdir()
+            plan = self._plan(root, llm=["claude"], name=["backend-msa=user", "frontend=f"], plugin=["all"],
+                              proto_lang=["go,python"])
+            self.assertIn("proto", plan.platforms)  # required by backend-msa
             files = {a.path: a.content.decode() for a in plan.actions if a.content is not None}
-            for tool in ("runner", "builder", "deployer"):
-                for p in ("backend-msa", "frontend"):
-                    for ext in ("sh", "ps1"):
-                        self.assertNotIn("{{", files[f"tools/{tool}/{p}/{tool}.{ext}"])
-                self.assertIn("`u`", files[f"tools/{tool}/GUIDE.md"])
-            self.assertIn("build_proto", files["tools/builder/backend-msa/builder.sh"])
-            self.assertNotIn("build_proto", files["tools/builder/frontend/builder.sh"])
-            self.assertIn("Invoke-BuildProto", files["tools/builder/backend-msa/builder.ps1"])
-            self.assertIn("DEPLOY_TARGETS", files["Makefile"])
-            self.assertIn('-match "^(.+)-deploy-(development|production)$"', files["make.ps1"])
+            self.assertIn("module my-shop/proto", files["proto/dist/go/go.mod"])
+            self.assertIn('name = "my-shop-proto"', files["proto/dist/python/pyproject.toml"])
+            self.assertNotIn("proto/dist/dart/pubspec.yaml", files)
+            gen = files["tools/builder/proto/builder.sh"]
+            self.assertIn("gen_go()", gen)
+            self.assertIn("gen_python()", gen)
+            self.assertNotIn("gen_dart()", gen)
+            self.assertIn("Invoke-GenGo", files["tools/builder/proto/builder.ps1"])
+            self.assertIn("tools/builder/proto/builder.sh", files["tools/builder/backend-msa/builder.sh"])
+            self.assertNotIn("tools/builder/proto", files["tools/builder/frontend/builder.sh"])
+            for path in files:  # no service tooling or env values for the contract
+                self.assertFalse(path.startswith(("tools/runner/proto", "tools/deployer/proto", "tools/secrets/proto")), path)
+                self.assertFalse(path.startswith("backend-msa/proto"), path)
+            self.assertIn("proto-build:", files["Makefile"])
+            self.assertIn("PLATFORMS := backend-msa frontend", files["Makefile"])
+            self.assertIn("!proto/dist/", files[".gitignore"])
+            self.assertIn('languages = ["go", "python"]', files[".yjcli/manifest.toml"])
+            for name in ("Makefile", "make.ps1", "tools/builder/GUIDE.md"):
+                self.assertNotIn("{{", files[name])
+
+    def test_proto_needs_languages_and_rejects_name(self) -> None:
+        with TemporaryDirectory() as tmp:
+            state = read_state(Path(tmp))
+            draft, errors = from_args(state, mode=None, llm=["claude"], platform=None, plugin=["none"],
+                                      name=["backend-msa=user"])
+            self.assertEqual(errors, [])
+            self.assertTrue(any("--proto-lang" in m for m in missing(draft, state)))
+            _, errors = from_args(state, mode=None, llm=None, platform=None, plugin=None, name=["proto=go"])
+            self.assertTrue(any("--proto-lang" in e for e in errors), errors)
+            _, errors = from_args(state, mode=None, llm=None, platform=None, plugin=None, name=None,
+                                  proto_lang=["rust"])
+            self.assertTrue(any("지원하지 않는 언어" in e for e in errors), errors)
 
 
 class UpdateTests(unittest.TestCase):
@@ -211,13 +237,15 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(is_older("0.3.0", "0.3"))
         self.assertFalse(is_older("0.0.0+local", "1.0.0"))  # unknown dev build never blocks
 
-    def test_repos_before_0_4_are_unsupported(self) -> None:
+    def test_repos_before_0_5_are_unsupported(self) -> None:
         from yjcli.core.manifest import unsupported
 
+        self.assertTrue(unsupported("0.4.2"))
         self.assertTrue(unsupported("0.3.4"))
-        self.assertTrue(unsupported("0.2.5"))
-        self.assertFalse(unsupported("0.4.0"))
-        self.assertFalse(unsupported("0.4.1"))
+        self.assertFalse(unsupported("0.5.0"))
+        self.assertFalse(unsupported("0.5.1"))
+        self.assertFalse(unsupported("0.4.3", installed="0.4.3"))  # unreleased build, version not bumped yet
+        self.assertTrue(unsupported("0.4.2", installed="0.4.3"))
 
 
 class OrphanTests(unittest.TestCase):
@@ -250,7 +278,7 @@ class OrphanTests(unittest.TestCase):
 
             shutil.rmtree(root / "backend/a1")  # service gone → its env files lose their owner
             state = read_state(root)
-            draft, _ = from_args(state, mode=None, llm=None, platform=None, plugin=None, name=None, option=None)
+            draft, _ = from_args(state, mode=None, llm=None, platform=None, plugin=None, name=None)
             fill_from_manifest(draft, state)
             draft.purge = True
             plan = build_plan(draft, state, version="test")

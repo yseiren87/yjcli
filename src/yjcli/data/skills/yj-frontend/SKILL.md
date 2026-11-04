@@ -56,7 +56,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 - Container route wires store + router; presentational page takes props only.
 - Routes declared at entry — do not scatter route tables; entry stays registration-thin.
 - Generated UI primitives: do not hand-edit or duplicate.
-- Consume backend contracts via generated client or `backend-msa/proto/dist/{lang}` — never copy `.proto` into frontend.
+- Consume backend contracts via a generated client or the shared root contract (see "Shared proto contract") — never copy `.proto` into frontend.
 
 ## Optional: server templating (SSR)
 
@@ -85,3 +85,5 @@ view (presentational) -> props only
 
 - Stay inside `frontend/{app_name}/` (and linked contract dist if needed).
 - Do not load Electron/Flutter skills for React web work.
+
+{{include:proto-contract.md}}

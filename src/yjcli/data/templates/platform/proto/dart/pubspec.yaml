@@ -1,0 +1,16 @@
+# Generated Dart library of the shared proto contract (seeded by yjcli; yours to edit).
+# Generated code goes to lib/. Apps consume it with:
+#   dependencies:
+#     {{proto_dart_package}}:
+#       path: <relative path to proto/dist/dart>
+name: {{proto_dart_package}}
+description: Generated gRPC/protobuf client and message code.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  protobuf: ">=3.1.0 <5.0.0"
+  grpc: ">=3.2.0 <5.0.0"

@@ -68,7 +68,7 @@ Missing main domain ≠ put logic in entry; keep orchestration in `main/services
 ## Contracts
 
 - Prefer local ipc contract types shared carefully inside the app.
-- If a future lang/client can consume `backend-msa/proto/dist/{lang}`, symlink that dist — do not copy proto sources. Electron renderer often will not use gRPC stubs directly; do not force it.
+- If a client needs gRPC contracts, depend on `proto/dist/<lang>` by path (see "Shared proto contract") — do not copy proto sources. Electron renderer often will not use gRPC stubs directly; do not force it.
 
 ## Environment gotchas
 
@@ -81,3 +81,5 @@ Missing main domain ≠ put logic in entry; keep orchestration in `main/services
 
 - Stay in `pc-app/{app_name}/` and the process you are changing.
 - Do not use `yj-frontend` as a substitute; renderer likeness ≠ same skill.
+
+{{include:proto-contract.md}}

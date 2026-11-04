@@ -17,6 +17,7 @@ class Skill:
 
 SKILLS: tuple[Skill, ...] = (
     Skill("yj-arch-core", "core"),
+    Skill("yj-proto", "platform", (("proto/**", ""),)),
     Skill("yj-backend", "platform", (("backend/**", ""), ("browser-extension/native_*/**", ""))),
     Skill("yj-backend-msa", "platform", (("backend-msa/**", ""),)),
     Skill("yj-backend-ssr", "platform", (("backend-ssr/**", ""),)),

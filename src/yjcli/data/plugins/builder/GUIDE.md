@@ -31,20 +31,34 @@ Each `builder.sh` / `builder.ps1` ships a working skeleton:
 - Empties `dist/<platform>/<service>/` before each build.
 - Runs your build function inside `<platform>/<service>/`, then writes `BUILD_INFO`. Version: the service's `package.json` / `pyproject.toml` `version`, else the `VERSION` env var, else `unknown`.
 - Stops at the first failing service with a non-zero exit code.
-{{#if has_proto}}
-- On platforms that can have a `proto/` contract, runs your proto function once before the services when `<platform>/proto/` exists.
+{{#if platform_proto}}
+- On platforms that need the shared proto contract (`backend-msa`), runs `tools/builder/proto/builder.sh` once before the services.
 {{/if}}
 
 ## What you implement
 
 - `builder.sh`: `build_one <service>` · `builder.ps1`: `Invoke-BuildOne <service>` — build one service into `$OUT` / `$Out`.
 - Available: the environment, the output folder, and the path of `tools/secrets/<platform>/<service>/.env.<env>` (`$ENV_FILE` / `$EnvFile`). Read it only for values that must be fixed at build time (e.g. a frontend bundle); never copy it into the output.
-{{#if has_proto}}
-- `build_proto` / `Invoke-BuildProto` — generate code from `<platform>/proto/*.proto` into `<platform>/proto/dist/<lang>/` (protoc is the standard). `proto/dist/` is generated source the services compile against; it is not a deployable build and does not go to `dist/`.
-{{/if}}
 
 Until implemented they print a pointer to this guide and fail.
 
+{{#if platform_proto}}
+## Proto contract
+
+The shared gRPC/protobuf contract lives at the repository root in `proto/` (schemas `proto/*.proto`); there is no proto folder inside any platform. Languages generated now: {{proto_languages}}.
+
+| Command | Script |
+|---|---|
+| `make proto-build` / `./make.ps1 proto-build` | `tools/builder/proto/builder.sh` / `builder.ps1` — every language under `proto/dist/` |
+| `… PROTO_LANG=<language>` | same script, one language |
+
+- Implement one function per language: `gen_<language>` (`builder.sh`) / `Invoke-Gen<Language>` (`builder.ps1`). The skeleton finds the languages, skips the run when there is no `.proto` yet, and fails with a pointer here when a function is missing (add one when you add a language later).
+- Output goes to `proto/dist/<language>/` — a library package, not a deployable build (`dist/` at the root is unrelated). Each folder already has its manifest: Go `go.mod` (module `{{proto_go_module}}`), Dart `pubspec.yaml` (`{{proto_dart_package}}`, code in `lib/`), Python `pyproject.toml` (`{{proto_python_dist}}`, package `{{proto_python_package}}/`). Keep the manifest; regenerate only the code, and remove code of deleted `.proto` files.
+- Keep only what a consumer needs: generated code plus the manifest (Go also `go.sum` after `go mod tidy`). No lock files (`pubspec.lock`, `uv.lock`) — consumers own those.
+- Consumers use a path dependency on `proto/dist/<language>/` (Go `replace`, Dart `path:`, Python editable path), never a copy of the `.proto` files.
+- protoc is the standard (buf is not used). Generated code is committed so consumers and CI build without protoc.
+
+{{/if}}
 ## Requirements
 
 - Build for where the service will run. If the deploy target is a Linux container, produce something that runs there (e.g. `GOOS=linux` for Go, or dependencies installed for Linux).

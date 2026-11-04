@@ -8,8 +8,9 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from yjcli.catalog.platforms import PLATFORM_BY_ID
 from yjcli.core.planner import Plan, is_env_value
-from yjcli.core.selection import Draft, option_values
+from yjcli.core.selection import Draft
 
 _KIND_LABEL = {
     "create": "+ 생성",
@@ -26,16 +27,13 @@ def _services_text(plan: Plan) -> str:
     parts = []
     for pid, names in plan.services.items():
         fresh = set(plan.new_services.get(pid, []))
-        parts += [f"{pid}/{n}" + (" (+)" if n in fresh else "") for n in names]
+        base = f"{pid}/dist" if PLATFORM_BY_ID[pid].is_contract else pid  # contract: generated languages
+        parts += [f"{base}/{n}" + (" (+)" if n in fresh else "") for n in names]
     return ", ".join(parts) or "—"
 
 
 def _platforms_text(plan: Plan, draft: Draft) -> str:
-    out = []
-    for pid in plan.platforms:
-        on = [o for o, v in option_values(draft, pid).items() if v] if pid in plan.new_platforms else []
-        out.append(pid + (f" ({', '.join(on)})" if on else ""))
-    return ", ".join(out) or "—"
+    return ", ".join(plan.platforms) or "—"
 
 
 def print_summary(

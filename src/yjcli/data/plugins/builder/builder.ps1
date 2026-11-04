@@ -1,6 +1,6 @@
 # Build for platform "{{platform}}" (yjcli builder plugin; repository-owned).
 #
-# Read tools/builder/GUIDE.md, then implement Invoke-BuildOne below{{#if proto}} (and Invoke-BuildProto){{/if}}.
+# Read tools/builder/GUIDE.md, then implement Invoke-BuildOne below.
 # Everything else - argument checks, service list, emptying
 # dist\{{platform}}\<service>\, writing BUILD_INFO - already works.
 # This is the entry point `make.ps1 {{platform}}-build-<env>` calls. It does not
@@ -36,19 +36,6 @@ function Invoke-BuildOne([string]$Name) {
     # npm ci; npm run build; Copy-Item -Recurse dist\* $Out
     # uv build --wheel --out-dir $Out
 }
-{{#if proto}}
-
-# Invoke-BuildProto
-#   Generate code from $PlatformDir\proto\*.proto into $PlatformDir\proto\dist\<lang>\.
-#   Runs once before the services when $PlatformDir\proto\ exists.
-function Invoke-BuildProto {
-    Write-Host "proto codegen for $Platform is not implemented - read tools/builder/GUIDE.md"
-    exit 1
-    # Example:
-    # protoc --proto_path="$PlatformDir\proto" --go_out="$PlatformDir\proto\dist\go" `
-    #   --go-grpc_out="$PlatformDir\proto\dist\go" (Get-ChildItem "$PlatformDir\proto\*.proto")
-}
-{{/if}}
 # -----------------------------------------------------------------------------
 
 if ($Environment -notin @("development", "production")) {
@@ -57,13 +44,13 @@ if ($Environment -notin @("development", "production")) {
 }
 
 if ($Service) {
-    if ($Service -eq "proto" -or -not (Test-Path (Join-Path $PlatformDir $Service) -PathType Container)) {
+    if (-not (Test-Path (Join-Path $PlatformDir $Service) -PathType Container)) {
         Write-Host "unknown service: $Service (expected $PlatformDir\$Service)"
         exit 1
     }
     $services = @($Service)
 } else {
-    $services = @(Get-ChildItem -Path $PlatformDir -Directory | Where-Object { $_.Name -ne "proto" } |
+    $services = @(Get-ChildItem -Path $PlatformDir -Directory |
         Sort-Object Name | ForEach-Object { $_.Name })
 }
 if ($services.Count -eq 0) {
@@ -94,12 +81,13 @@ function Assert-LastExit([string]$What) {
         exit $LASTEXITCODE
     }
 }
-{{#if proto}}
+{{#if needs_proto}}
 
-if (Test-Path (Join-Path $PlatformDir "proto") -PathType Container) {
-    Write-Host "[build] proto"
-    $global:LASTEXITCODE = 0
-    Invoke-BuildProto
+# This platform consumes the shared proto contract: generate it first.
+$protoBuilder = Join-Path $RootDir "tools\builder\proto\builder.ps1"
+if (Test-Path $protoBuilder) {
+    Write-Host "[build] proto contract (tools/builder/proto/builder.ps1)"
+    & $protoBuilder
     Assert-LastExit "proto codegen"
 }
 {{/if}}

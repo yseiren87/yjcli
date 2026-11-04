@@ -9,9 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from yjcli.catalog.llms import LLM_BY_ID, LLMS
-from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS
+from yjcli.catalog.platforms import LANGUAGE_BY_ID, PLATFORM_BY_ID, PLATFORMS, PROTO, with_required
 from yjcli.catalog.plugins import PLUGIN_BY_ID, PLUGINS, missing_requires
-from yjcli.core.names import parse_names
+from yjcli.core.names import parse_languages, parse_names
 from yjcli.core.state import RepoState
 
 
@@ -21,8 +21,8 @@ class Draft:
     llms: list[str] | None = None
     platforms: list[str] | None = None
     plugins: list[str] | None = None
-    names: dict[str, list[str]] = field(default_factory=dict)  # platform -> new services
-    options: dict[str, dict[str, bool]] = field(default_factory=dict)
+    # platform -> new services (for the contract platform: new languages)
+    names: dict[str, list[str]] = field(default_factory=dict)
     # Steps answered on the command line (the wizard skips them).
     given: set[str] = field(default_factory=set)
     # Also delete changed seeds whose owner is gone (env value files excepted).
@@ -78,7 +78,7 @@ def from_args(
     platform: list[str] | None,
     plugin: list[str] | None,
     name: list[str] | None,
-    option: list[str] | None,
+    proto_lang: list[str] | None = None,
 ) -> tuple[Draft, list[str]]:
     errors: list[str] = []
     draft = Draft(mode=mode or state.mode)
@@ -98,6 +98,9 @@ def from_args(
         if not parsed:
             continue
         pid, value = parsed
+        if PLATFORM_BY_ID[pid].is_contract:
+            errors.append(f"--name {pid}: {pid} 는 서비스가 아니라 언어를 고릅니다 — --proto-lang go,dart,python")
+            continue
         result = parse_names(value, existing=set(state.existing(pid)))
         errors += [f"--name {pid}: {e}" for e in result.errors]
         draft.notes += [f"{pid}: {n}" for n in result.notes]
@@ -105,24 +108,14 @@ def from_args(
         draft.names[pid] += [n for n in result.names if n not in draft.names[pid]]
         draft.given.add(f"names:{pid}")
 
-    for raw in option or []:
-        parsed = _split_assignment(raw, "--option", errors)
-        if not parsed:
-            continue
-        pid, value = parsed
-        known = {o.id: o for o in PLATFORM_BY_ID[pid].options}
-        for token in [t.strip() for t in value.split(",") if t.strip()]:
-            on = not token.startswith("no-")
-            oid = token[3:] if not on else token
-            if oid not in known:
-                errors.append(f"--option {pid}: 알 수 없는 옵션 '{oid}' (사용 가능: {', '.join(known) or '없음'})")
-            elif known[oid].fixed and not on:
-                errors.append(f"--option {pid}: '{oid}' 는 고정 옵션이라 끌 수 없습니다")
-            else:
-                draft.options.setdefault(pid, {})[oid] = on
-        draft.given.add(f"options:{pid}")
+    if proto_lang is not None:
+        result = parse_languages(" ".join(proto_lang), existing=set(state.existing(PROTO)))
+        errors += [f"--proto-lang: {e}" for e in result.errors]
+        draft.notes += [f"{PROTO}: {n}" for n in result.notes]
+        draft.names[PROTO] = result.names
+        draft.given.add(f"names:{PROTO}")
 
-    # --name implies its platform.
+    # --name / --proto-lang imply their platform.
     if draft.names:
         base = draft.platforms
         if base is None and draft.mode == "update" and state.manifest:
@@ -131,6 +124,7 @@ def from_args(
         draft.platforms = [p.id for p in PLATFORMS if p.id in merged]
         if platform is None:
             platform = []  # mark the step as given
+    add_required_platforms(draft)
 
     if llm is not None:
         draft.given.add("llms")
@@ -153,12 +147,14 @@ def fill_from_manifest(draft: Draft, state: RepoState) -> None:
         draft.plugins = list(state.manifest.plugins)
 
 
-def option_values(draft: Draft, platform: str) -> dict[str, bool]:
-    chosen = draft.options.get(platform, {})
-    return {
-        o.id: True if o.fixed else chosen.get(o.id, o.default)
-        for o in PLATFORM_BY_ID[platform].options
-    }
+def add_required_platforms(draft: Draft) -> None:
+    """e.g. backend-msa brings the shared proto contract along."""
+    if draft.platforms is None:
+        return
+    draft.platforms, added = with_required(draft.platforms)
+    for pid in added:
+        needers = [p for p in draft.platforms if pid in PLATFORM_BY_ID[p].requires]
+        draft.notes.append(f"{', '.join(needers)} 는 {pid} 가 필요해 함께 선택했습니다")
 
 
 def missing(draft: Draft, state: RepoState) -> list[str]:
@@ -176,7 +172,10 @@ def missing(draft: Draft, state: RepoState) -> list[str]:
         out.append("--plugin (예: --plugin runner,builder · --plugin all · --plugin none)")
     for pid in draft.new_platforms(state):
         if not draft.names.get(pid):
-            out.append(f"--name {pid}=<이름들> (새 플랫폼은 서비스 이름이 최소 1개 필요)")
+            if PLATFORM_BY_ID[pid].is_contract:
+                out.append(f"--proto-lang <언어들> (예: --proto-lang go,dart · 사용 가능: {', '.join(LANGUAGE_BY_ID)})")
+            else:
+                out.append(f"--name {pid}=<이름들> (새 플랫폼은 서비스 이름이 최소 1개 필요)")
     return out
 
 
@@ -192,9 +191,10 @@ def validate(draft: Draft, state: RepoState) -> list[str]:
                 errors.append(
                     f"{pid}: 서비스가 있는 플랫폼은 해제할 수 없습니다 ({', '.join(state.existing(pid))})"
                 )
-    for pid in draft.options:
-        if pid in (draft.platforms or []) and pid not in draft.new_platforms(state):
-            draft.notes.append(f"{pid}: 이미 있는 플랫폼이라 옵션은 적용하지 않습니다 (폴더를 직접 만들면 됩니다)")
+    for pid in draft.platforms or []:
+        for req in PLATFORM_BY_ID[pid].requires:
+            if req not in (draft.platforms or []):
+                errors.append(f"{pid} 는 {req} 플랫폼이 필요합니다")
     errors += missing_requires([p for p in draft.plugins or [] if p in PLUGIN_BY_ID])
     unknown_llm = [l for l in draft.llms or [] if l not in LLM_BY_ID]
     if unknown_llm:

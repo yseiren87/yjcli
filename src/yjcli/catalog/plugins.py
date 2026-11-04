@@ -21,7 +21,7 @@ class PluginFile:
 
     `template` is relative to data/plugins; `dest` is relative to the repo root.
     Both may use {platform}. Every plugin file is rendered with the plan context
-    (plus `platform` and `proto` for platform-scoped files).
+    (plus `platform` and `needs_proto` for platform-scoped files).
     """
 
     template: str
@@ -29,6 +29,7 @@ class PluginFile:
     policy: str
     scope: str  # root | platform
     executable: bool = False
+    kinds: tuple[str, ...] = ("service",)  # platform kinds a platform-scoped file applies to
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,15 @@ def _tool_files(tool: str) -> tuple[PluginFile, ...]:
     )
 
 
+# The proto contract has no services: it gets a codegen entry instead of a build one.
+_PROTO_BUILDER = (
+    PluginFile("builder/proto-builder.sh", "tools/builder/{platform}/builder.sh", SEED, "platform",
+               executable=True, kinds=("contract",)),
+    PluginFile("builder/proto-builder.ps1", "tools/builder/{platform}/builder.ps1", SEED, "platform",
+               kinds=("contract",)),
+)
+
+
 PLUGINS: tuple[Plugin, ...] = (
     Plugin(
         id="runner",
@@ -67,10 +77,10 @@ PLUGINS: tuple[Plugin, ...] = (
         id="builder",
         label="빌드 (dist/<platform>/<service>/)",
         location="tools/builder/",
-        files=_tool_files("builder"),
+        files=(*_tool_files("builder"), *_PROTO_BUILDER),
         skill_fragment="plugin-builder.md",
         layout_rows=(
-            ("`tools/builder/`", "Build — `GUIDE.md` (managed) + `<platform>/builder.{sh,ps1}` (repository-owned); `make <platform>-build-<env>`"),
+            ("`tools/builder/`", "Build — `GUIDE.md` (managed) + `<platform>/builder.{sh,ps1}` (repository-owned); `make <platform>-build-<env>`, `make proto-build` (codegen)"),
             ("`dist/<platform>/<service>/`", "Build output (git-ignored) — input of the deployer"),
         ),
     ),

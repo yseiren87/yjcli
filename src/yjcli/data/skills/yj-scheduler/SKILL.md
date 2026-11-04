@@ -73,7 +73,7 @@ views/{job_name}/*.html | views/layouts/* | views/partials/*
 
 ## Contracts
 
-- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a job must call backend services directly; do not copy `.proto` sources into `scheduler/`.
+- When a job must call backend services directly, depend on `proto/dist/<lang>` by path (see "Shared proto contract"); do not copy `.proto` sources into `scheduler/`.
 
 ## Scheduling policy
 
@@ -112,3 +112,5 @@ Forbidden: business logic in trigger callbacks; flow importing entry/framework b
 
 - Stay within `scheduler/{scheduler_name}/` unless the task explicitly changes shared contracts or platform wiring.
 - Prefer extending an existing scheduler process for related jobs; do not create one deployable per cron expression automatically.
+
+{{include:proto-contract.md}}

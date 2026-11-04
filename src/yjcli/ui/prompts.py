@@ -85,6 +85,10 @@ class QuestionaryPrompter:
             instruction=instruction or "(space: 선택/해제, a: 전체, enter: 다음, ←: 이전)",
         )
         kb = _back_binding()
+        # Selection as the toggle rules see it; items locked on mid-way (disabled and
+        # selected) are added to the answer, like the initially locked ones.
+        current = {"selected": [i.value for i in items if i.checked]}
+        control = None
         if on_toggle is not None:
             control = next(
                 c for c in question.application.layout.find_all_controls() if isinstance(c, InquirerControl)
@@ -95,12 +99,11 @@ class QuestionaryPrompter:
                 value = control.get_pointed_at().value
                 if control.get_pointed_at().disabled:
                     return
-                now = value not in control.selected_options
-                current = list(control.selected_options) + ([value] if now else [])
-                if not now:
-                    current.remove(value)
-                updated, msg = on_toggle(current, value, now)
-                control.selected_options = updated
+                now = value not in current["selected"]
+                selection = [v for v in current["selected"] if v != value] + ([value] if now else [])
+                updated, msg = on_toggle(selection, value, now)
+                current["selected"] = updated
+                control.selected_options = list(updated)
                 if disabled_for is not None:
                     reasons = disabled_for(updated)
                     for choice in control.choices:
@@ -119,6 +122,9 @@ class QuestionaryPrompter:
             raise KeyboardInterrupt
         if answer is BACK:
             return BACK
+        if control is not None:
+            # Our own record is the truth (questionary may drop disabled entries).
+            return list(dict.fromkeys(current["selected"]))
         return [*locked, *[v for v in answer if v not in locked]]
 
     def text(self, message, *, default="", validate=None):

@@ -19,7 +19,7 @@ Current services:
 
 Each `runner.sh` / `runner.ps1` ships a working skeleton:
 
-- Service list: the folders under `<platform>/` (except `proto/`), or the one named service.
+- Service list: the folders under `<platform>/`, or the one named service.
 - Env: exports `tools/secrets/<platform>/<service>/.env.local-dev` (plain `KEY=VALUE` lines, values taken literally). A service without that file is skipped with a warning.
 - Starts every service concurrently, prefixing each output line with `[<service>]`.
 - **Ctrl+C** stops every service it started (whole process tree) and exits.

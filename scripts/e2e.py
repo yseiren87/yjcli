@@ -143,7 +143,7 @@ class Case:
         import re
 
         f = self.dir / script
-        text, n = re.subn(r"^function %s(\([^)]*\))? *\{\n.*?^\}" % re.escape(function),
+        text, n = re.subn(r"^function %s(\([^)]*\))? *\{[^\n]*\n.*?^\}" % re.escape(function),
                           lambda m: f"function {function}{m.group(1) or ''} {{\n{body}\n}}", f.read_text(),
                           count=1, flags=re.S | re.M)
         self.check(n == 1, f"{script}: function {function} not found")
@@ -154,7 +154,7 @@ class Case:
         import re
 
         f = self.dir / script
-        text, n = re.subn(r"^%s\(\) \{\n.*?^\}" % re.escape(function),
+        text, n = re.subn(r"^%s\(\) \{[^\n]*\n.*?^\}" % re.escape(function),
                           lambda _: f"{function}() {{\n{body}\n}}", f.read_text(), count=1, flags=re.S | re.M)
         self.check(n == 1, f"{script}: function {function} not found")
         f.write_text(text)
@@ -251,8 +251,7 @@ def _(c: Case):
              ".agents/skills/yj-cli/SKILL.md", ".agents/skills/yj-scheduler/SKILL.md")
     c.absent("backend/a1/Dockerfile", "backend/a1/.dockerignore", "frontend/f1/Dockerfile", "tools/builder/steps",
              "tools/builder/build-common.sh", ".claude", ".cursor", "CLAUDE.md")
-    c.contains("tools/builder/backend/builder.sh", "build_proto")  # backend may opt into proto/
-    c.lacks("tools/builder/frontend/builder.sh", "build_proto")
+    c.lacks("tools/builder/backend/builder.sh", "build_proto", "tools/builder/proto")  # no proto here
     c.contains("Makefile", "BUILD_TARGETS", "DEPLOY_TARGETS", "tools/builder/$$p/builder.sh", "tools/deployer/$$p/deployer.sh")
     c.contains(".agents/skills/yj-arch-core/SKILL.md", "### Builder", "### Deployer", "--env-file")
     c.contains("tools/deployer/GUIDE.md", "--env-file", "never builds", "More than one script")
@@ -302,25 +301,74 @@ def _(c: Case):
     c.exists("tools/deployer/backend/deployer.sh", "tools/deployer/GUIDE.md")
 
 
-@case("05-backend-variants", "backend / backend-msa(proto 고정) / backend-ssr(views) / proto 옵션")
+@case("05-backend-variants", "backend / backend-msa / backend-ssr(views) + 루트 proto 계약")
 def _(c: Case):
-    c.yjcli("-l", "claude", "-n", "backend=api", "-n", "backend-msa=user,order", "-n", "backend-ssr=web",
-            "-o", "backend=proto", "--plugin", "none", "-y")
-    c.exists("backend/proto/.gitkeep", "backend/proto/dist/.gitkeep", "backend-msa/proto/dist/.gitkeep",
-             "backend-ssr/web/views", "backend-msa/user/apps", "backend-msa/order/apps",
-             ".claude/skills/yj-backend/SKILL.md", ".claude/skills/yj-backend-msa/SKILL.md",
-             ".claude/skills/yj-backend-ssr/SKILL.md")
-    c.absent("backend-ssr/proto", "backend/api/views", ".claude/skills/yj-backend-service")
-    c.contains("AGENTS.md", "| `backend-msa/**` | `yj-backend-msa` |", "| `backend-ssr/**` | `yj-backend-ssr` |",
-               "| `backend-msa/proto/` | gRPC/protobuf contract |", "| `backend/proto/` | (optional) gRPC/protobuf contract |")
+    r = c.yjcli("-l", "claude", "-n", "backend=api", "-n", "backend-msa=user,order", "-n", "backend-ssr=web",
+                "--plugin", "builder", "-y", expect=1)
+    c.output_has(r, "--proto-lang")  # backend-msa brings proto along, which needs languages
+    r = c.yjcli("-l", "claude", "-n", "backend=api", "-n", "backend-msa=user,order", "-n", "backend-ssr=web",
+                "--proto-lang", "go,dart", "--plugin", "builder", "-y")
+    c.output_has(r, "proto/dist/go (+)", "proto/dist/dart (+)")
+    c.exists("proto/dist/go/go.mod", "proto/dist/dart/pubspec.yaml", "backend-ssr/web/views",
+             "backend-msa/user/apps", "backend-msa/order/apps", "tools/builder/proto/builder.sh",
+             "tools/builder/proto/builder.ps1", ".claude/skills/yj-proto/SKILL.md", ".claude/skills/yj-backend/SKILL.md",
+             ".claude/skills/yj-backend-msa/SKILL.md", ".claude/skills/yj-backend-ssr/SKILL.md")
+    c.absent("proto/dist/python", "backend/proto", "backend-msa/proto", "backend-ssr/proto", "backend/api/views",
+             "tools/secrets/proto", "tools/builder/proto/GUIDE.md", "proto/.env.examples")
+    c.executable("tools/builder/proto/builder.sh")
+    c.contains("proto/dist/go/go.mod", "module 05-backend-variants/proto".replace("05-", "repo-05-"))
+    c.contains("proto/dist/dart/pubspec.yaml", "name: repo_05_backend_variants_proto")
+    c.contains("tools/builder/proto/builder.sh", "gen_go()", "gen_dart()")
+    c.lacks("tools/builder/proto/builder.sh", "gen_python()")
+    c.contains("tools/builder/backend-msa/builder.sh", "tools/builder/proto/builder.sh")
+    c.lacks("tools/builder/backend/builder.sh", "tools/builder/proto")
+    c.contains("tools/builder/GUIDE.md", "## Proto contract", "Languages generated now: `dart`, `go`.")
+    c.contains("Makefile", "proto-build:", "PLATFORMS := backend backend-msa backend-ssr")
+    c.contains(".yjcli/manifest.toml", '[platforms."proto"]', 'languages = ["dart", "go"]')
+    c.contains(".gitignore", "!proto/dist/")
+    c.contains("AGENTS.md", "| `proto/**` | `yj-proto` |", "| `backend-msa/**` | `yj-backend-msa` |",
+               "| `backend-ssr/**` | `yj-backend-ssr` |", "| `proto/` | Shared gRPC/protobuf contract")
+    for skill in ("yj-backend", "yj-backend-ssr", "yj-backend-msa"):
+        c.contains(f".claude/skills/{skill}/SKILL.md", "## Shared proto contract",
+                   "Never create a `proto/` folder or a `.proto` file inside a platform or service folder")
     c.contains(".claude/skills/yj-backend-ssr/SKILL.md", "## Server templating", "## Roles", "## Optional: gRPC transport")
     c.contains(".claude/skills/yj-backend/SKILL.md", "## Roles", "## Optional: gRPC transport",
                "editing `backend/**`, `browser-extension/native_*/**`.")
-    c.lacks(".claude/skills/yj-backend-msa/SKILL.md", "Optional: server templating", "backend/proto")
-    c.contains(".claude/skills/yj-backend-msa/SKILL.md", "backend-msa/proto/dist/{lang}")
-    r = c.yjcli("-l", "claude", "-n", "backend-msa=x", "-o", "backend-msa=no-proto", "--plugin", "none",
-                "--mode", "update", "-y", expect=1)
-    c.output_has(r, "고정 옵션")
+    c.contains(".claude/skills/yj-backend-msa/SKILL.md", "This platform has no proto folder of its own")
+    c.contains(".claude/skills/yj-proto/SKILL.md", "module 05-backend-variants/proto".replace("05-", "repo-05-"))
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "proto/                ")  # platform roots list
+
+    # proto codegen: skips without schemas, fails on a missing language function, runs implemented ones
+    r = c.sh("make proto-build")
+    c.output_has(r, "no .proto files in proto/ yet")
+    (c.dir / "proto/order.proto").write_text('syntax = "proto3";\npackage order.v1;\n')
+    r = c.sh("make proto-build", expect=None)
+    c.check(r.code != 0 and "proto codegen for dart is not implemented" in r.out, "unimplemented gen should fail")
+    c.implement("tools/builder/proto/builder.sh", "gen_go", '  echo "go code" > "$OUT/order.pb.go"')
+    c.implement("tools/builder/proto/builder.sh", "gen_dart", '  mkdir -p "$OUT/lib" && echo dart > "$OUT/lib/order.pb.dart"')
+    r = c.sh("make proto-build PROTO_LANG=go")
+    c.output_has(r, "[proto] go -> proto/dist/go", "[proto] done: go")
+    c.exists("proto/dist/go/order.pb.go", "proto/dist/go/go.mod")
+    (c.dir / "proto/dist/python").mkdir()
+    r = c.sh("make proto-build", expect=None)
+    c.check(r.code != 0 and "gen_python is not defined" in r.out, "a language without a function should fail with a hint")
+    (c.dir / "proto/dist/python").rmdir()
+    c.implement("tools/builder/backend-msa/builder.sh", "build_one", '  echo built > "$OUT/app"')
+    r = c.sh("make backend-msa-build-development")
+    c.output_has(r, "[build] proto contract", "[proto] done: dart go", "[build] done: order user")
+    c.sh("git init -q . && git check-ignore -q proto/dist/go/go.mod", expect=1)  # tracked
+
+    # proto can't be dropped while backend-msa needs it; languages are added later with --proto-lang
+    r = c.yjcli("-p", "backend,backend-msa,backend-ssr", "-y")
+    c.output_has(r, "backend-msa 는 proto 가 필요해 함께 선택했습니다")
+    r = c.yjcli("--proto-lang", "go,python", "-y")
+    c.output_has(r, "proto: go: 이미 있음 (변경 없음)", "proto/dist/python (+)")
+    c.exists("proto/dist/python/pyproject.toml")
+    c.lacks("tools/builder/proto/builder.sh", "gen_python()")  # seed: add the function yourself
+    r = c.yjcli("-n", "proto=go", "-y", expect=1)
+    c.output_has(r, "--proto-lang")
+    r = c.yjcli("--proto-lang", "rust", "-y", expect=1)
+    c.output_has(r, "지원하지 않는 언어")
 
 
 @case("06-browser-extension", "browser-extension: native_* 는 백엔드 구조 + yj-backend")
@@ -342,13 +390,13 @@ def _(c: Case):
 def _(c: Case):
     names = ["backend=a", "backend-msa=b", "backend-ssr=c", "frontend=d", "mobile-app=e", "pc-app=f",
              "cli=g", "browser-extension=h", "scheduler=i"]
-    args = ["-l", "all", "--plugin", "all", "-y"]
+    args = ["-l", "all", "--plugin", "all", "--proto-lang", "go,dart,python", "-y"]
     for n in names:
         args += ["-n", n]
     c.yjcli(*args)
     skill_sets = {d: c.tree(d) for d in (".cursor/skills", ".claude/skills", ".agents/skills")}
     c.check(len({tuple(v) for v in skill_sets.values()}) == 1, "all LLM skill dirs should hold the same skills")
-    c.check(len(skill_sets[".claude/skills"]) == 10, f"expected 10 skills, got {len(skill_sets['.claude/skills'])}")
+    c.check(len(skill_sets[".claude/skills"]) == 11, f"expected 11 skills, got {len(skill_sets['.claude/skills'])}")
     for rel in c.tree():
         if rel.startswith(".git/"):
             continue
@@ -357,7 +405,8 @@ def _(c: Case):
         c.check("backend-service" not in text, f"{rel}: mentions removed platform backend-service")
         c.check("plugin-build" not in text, f"{rel}: mentions old plugin-build-* script")
         c.check("Diff.md" not in text and "TOOLS.md" not in text, f"{rel}: mentions removed Diff.md/TOOLS.md")
-        for old in ("RUN_COMMAND", "make.bat", "build-common", "steps/docker", "--build-arg \"$key"):
+        for old in ("RUN_COMMAND", "make.bat", "build-common", "steps/docker", "--build-arg \"$key",
+                    "backend-msa/proto", "build_proto", "Invoke-BuildProto"):
             c.check(old not in text, f"{rel}: mentions removed {old}")
     for p in ("backend", "backend-msa", "backend-ssr", "frontend", "mobile-app", "pc-app", "cli", "browser-extension", "scheduler"):
         c.absent(f"{p}/scripts")
@@ -457,8 +506,8 @@ def _(c: Case):
 
 @case("14-validation", "잘못된 입력: 모든 문제를 한 번에 알림, 파일은 만들지 않음")
 def _(c: Case):
-    r = c.yjcli("-l", "claude", "-n", "backend=a1,-x,proto,a1", "--plugin", "none", "-y", expect=1)
-    c.output_has(r, "'-x'", "'proto': 예약된 이름")
+    r = c.yjcli("-l", "claude", "-n", "backend=a1,-x,a1", "--plugin", "none", "-y", expect=1)
+    c.output_has(r, "'-x'")
     r = c.yjcli("-l", "gpt", "-p", "nope", "--plugin", "magic", "-y", expect=1)
     c.output_has(r, "알 수 없는 LLM: gpt", "알 수 없는 플랫폼: nope", "알 수 없는 플러그인: magic")
     r = c.yjcli("-l", "claude", expect=1)
@@ -467,8 +516,8 @@ def _(c: Case):
     c.output_has(r, "--name backend=")
     r = c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "none", "--mode", "update", "-y", expect=1)
     c.output_has(r, "manifest.toml 이 없습니다")
-    r = c.yjcli("-o", "frontend=proto", "-n", "frontend=f", "-l", "claude", "--plugin", "none", "-y", expect=1)
-    c.output_has(r, "알 수 없는 옵션 'proto'")
+    r = c.yjcli("--proto-lang", "rust", "-n", "frontend=f", "-l", "claude", "--plugin", "none", "-y", expect=1)
+    c.output_has(r, "--proto-lang: 'rust': 지원하지 않는 언어")
     c.check(not c.dir.exists() or not any(c.dir.iterdir()), "nothing should be written on validation errors")
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "none", "-y")
     r = c.yjcli("-l", "claude", "-n", "backend=a2", "--plugin", "none", "--mode", "new", "-y", expect=1)
@@ -519,7 +568,6 @@ keys = [
     "\r",                 # 2 platforms: keep
     "j j k  \r",          # 3 plugins: runner default; builder on → deployer enabled, on; builder off drops deployer; builder on
     "a1, a2\r",           # 4 backend names
-    "\r",                 # 4 backend options: proto off
     "\r",                 # 4 frontend names: empty → error, stays
     "f1\r",               # 4 frontend names
     "\r",                 # 5 confirm: 적용
@@ -529,7 +577,7 @@ with create_pipe_input() as inp:
     for k in keys:
         inp.send_text(k)
     with create_app_session(input=inp, output=DummyOutput()):
-        cli.run(root, mode=None, llm=None, platform=None, plugin=None, name=None, option=None,
+        cli.run(root, mode=None, llm=None, platform=None, plugin=None, name=None, proto_lang=None,
                 yes=False, dry_run=False, force=False)
 '''
     c.dir.mkdir(parents=True, exist_ok=True)
@@ -650,7 +698,8 @@ def _(c: Case):
     if not shutil.which("pwsh"):
         c.log.append("pwsh not installed — skipped")
         return
-    c.yjcli("-l", "claude", "-n", "backend-msa=user,order", "-n", "frontend=web", "--plugin", "all", "-y")
+    c.yjcli("-l", "claude", "-n", "backend-msa=user,order", "-n", "frontend=web", "--proto-lang", "go",
+            "--plugin", "all", "-y")
     r = c.pwsh()
     c.output_has(r, "make.ps1 <platform>-deploy-<env>", "Platforms: backend-msa frontend")
     c.pwsh("nope", expect=1)
@@ -671,7 +720,13 @@ def _(c: Case):
     r = c.pwsh("backend-msa", expect=3)
     c.output_has(r, "[order] exited with 3")
 
-    c.implement_ps1("tools/builder/backend-msa/builder.ps1", "Invoke-BuildProto", '    Write-Host "protoc ok"')
+    r = c.pwsh("proto-build")
+    c.output_has(r, "no .proto files in proto/ yet")
+    (c.dir / "proto/order.proto").write_text('syntax = "proto3";\n')
+    c.pwsh("proto-build", expect=1)
+    c.implement_ps1("tools/builder/proto/builder.ps1", "Invoke-GenGo", '    Write-Host "protoc ok"')
+    r = c.pwsh("proto-build", "PROTO_LANG=go")
+    c.output_has(r, "protoc ok", "[proto] done: go")
     c.implement_ps1("tools/builder/backend-msa/builder.ps1", "Invoke-BuildOne",
                     '    Set-Content -Path (Join-Path $Out "app") -Value "built $Name for $Environment"')
     c.implement_ps1("tools/deployer/backend-msa/deployer.ps1", "Invoke-DeployOne",
@@ -695,7 +750,7 @@ def _(c: Case):
         "mobile-app": "mobile", "pc-app": "desktop", "cli": "tool", "browser-extension": "ext,native_host",
         "scheduler": "jobs",
     }
-    args = ["-l", "all", "--plugin", "all", "-o", "backend=proto", "-o", "backend-ssr=proto", "-y"]
+    args = ["-l", "all", "--plugin", "all", "--proto-lang", "go,dart,python", "-y"]
     for platform, value in names.items():
         args += ["-n", f"{platform}={value}"]
     c.yjcli(*args)
@@ -705,10 +760,11 @@ def _(c: Case):
             c.exists(f"tools/{tool}/{platform}/{tool}.ps1")
         for service in value.split(","):
             c.exists(f"{platform}/{service}/.env.examples", f"tools/secrets/{platform}/{service}/.env.local-dev")
-    c.exists("backend/proto", "backend-msa/proto", "backend-ssr/proto", "browser-extension/native_host/apps",
+    c.exists("proto/dist/go/go.mod", "proto/dist/dart/pubspec.yaml", "proto/dist/python/pyproject.toml",
+             "tools/builder/proto/builder.sh", "tools/builder/proto/builder.ps1", "browser-extension/native_host/apps",
              "Makefile", "make.ps1", "CLAUDE.md", ".cursor/skills", ".claude/skills", ".agents/skills")
     for d in (".cursor/skills", ".claude/skills", ".agents/skills"):
-        c.check(len(c.tree(d)) == 10, f"{d}: expected 10 skills")
+        c.check(len(c.tree(d)) == 11, f"{d}: expected 11 skills")
     for rel in c.tree():
         c.check("{{" not in (c.dir / rel).read_text(encoding="utf-8", errors="ignore"), f"{rel}: unrendered template tag")
     r = c.sh("make")

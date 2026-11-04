@@ -1,8 +1,8 @@
 """Step-by-step wizard. Asks only what the command line left open.
 
 Steps: 1 LLM → 2 platforms → 3 plugins → 4 service names (one screen per
-platform, with platform options) → 5 summary + confirm. ← goes back one screen;
-nothing is written until the user confirms.
+platform; the proto contract asks for languages instead) → 5 summary + confirm.
+← goes back one screen; nothing is written until the user confirms.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Callable
 from rich.console import Console
 
 from yjcli.catalog.llms import LLMS
-from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS
+from yjcli.catalog.platforms import LANGUAGES, PLATFORM_BY_ID, PLATFORMS, with_required
 from yjcli.catalog.plugins import PLUGINS, disabled_reasons, drop_dependents
 from yjcli.core.names import parse_names
 from yjcli.core.planner import Plan, is_env_value
@@ -36,7 +36,8 @@ def _header(console: Console, draft: Draft, state: RepoState, current: int, sub:
         ", ".join(draft.llms or []),
         ", ".join(draft.platforms or []),
         ", ".join(draft.plugins or []) or ("없음" if draft.plugins is not None else ""),
-        ", ".join(f"{p}/{n}" for p, ns in draft.names.items() for n in ns),
+        ", ".join(f"{p}/dist/{n}" if PLATFORM_BY_ID[p].is_contract else f"{p}/{n}"
+                  for p, ns in draft.names.items() for n in ns),
         "",
     )
     keys = ("llms", "platforms", "plugins", None, None)
@@ -59,6 +60,32 @@ def _plugin_toggle(current: list[str], value: str, now: bool) -> tuple[list[str]
     updated, dropped = drop_dependents(current)
     msg = f"{value} 가 없으면 {', '.join(dropped)} 를 쓸 수 없어 함께 해제했습니다" if dropped else None
     return updated, msg
+
+
+def _platform_rules(state: RepoState):
+    """Toggle + lock rules of the platform step: platforms with services and
+    platforms another selected one requires (proto for backend-msa) stay checked."""
+    with_services = {p for p in (state.manifest.platforms if state.manifest else {}) if state.existing(p)}
+
+    def reasons(selected: list[str]) -> dict[str, str | None]:
+        out: dict[str, str | None] = {}
+        for p in PLATFORMS:
+            needers = [q for q in selected if p.id in PLATFORM_BY_ID[q].requires]
+            if p.id in with_services:
+                unit = "언어" if p.is_contract else "서비스"
+                out[p.id] = f"{unit} {len(state.existing(p.id))}개"
+            elif needers:
+                out[p.id] = f"{', '.join(needers)} 가 사용"
+            else:
+                out[p.id] = None
+        return out
+
+    def toggle(current: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
+        updated, added = with_required(list(dict.fromkeys([*current, *with_services])))
+        msg = f"{value} 는 {', '.join(added)} 가 필요해 함께 선택했습니다" if now and added else None
+        return updated, msg
+
+    return with_services, reasons, toggle
 
 
 def run_wizard(
@@ -106,23 +133,17 @@ def run_wizard(
             draft.llms = answer
         elif step == 1:
             _header(console, draft, state, 1)
-            selected = set(draft.platforms or [])
-            locked = {p for p in (state.manifest.platforms if state.manifest else {}) if state.existing(p)}
-            items = [
-                Item(
-                    p.id,
-                    f"{p.id:<18} {p.hint}",
-                    p.id in selected or p.id in locked,
-                    disabled=f"서비스 {len(state.existing(p.id))}개" if p.id in locked else None,
-                )
-                for p in PLATFORMS
-            ]
-            answer = prompter.checkbox("플랫폼을 선택하세요", items, minimum=1)
+            with_services, reasons, toggle = _platform_rules(state)
+            selected, _ = with_required(list(dict.fromkeys([*(draft.platforms or []), *with_services])))
+            why = reasons(selected)
+            items = [Item(p.id, f"{p.id:<18} {p.hint}", p.id in selected, disabled=why[p.id]) for p in PLATFORMS]
+            answer = prompter.checkbox("플랫폼을 선택하세요", items, minimum=1, on_toggle=toggle,
+                                       disabled_for=reasons)
             if answer is BACK:
                 direction = -1
                 step -= 1
                 continue
-            draft.platforms = [p.id for p in PLATFORMS if p.id in answer]
+            draft.platforms, _ = with_required([p.id for p in PLATFORMS if p.id in answer])
             for pid in list(draft.names):
                 if pid not in draft.platforms:
                     del draft.names[pid]
@@ -209,6 +230,26 @@ def _names_step(draft: Draft, state: RepoState, prompter: Prompter, console: Con
         existing = set(state.existing(pid))
         is_new = pid in new_platforms
         _header(console, draft, state, 3, f"({i + 1}/{len(platforms)}) {pid}")
+        if platform.is_contract:
+            chosen = set(draft.names.get(pid, []))
+            answer = prompter.checkbox(
+                f"{pid}: 코드를 생성할 언어를 선택하세요 (proto/dist/<언어>/)",
+                [Item(l.id, f"{l.id:<8} {l.label}", l.id in existing or l.id in chosen,
+                      disabled="이미 있음" if l.id in existing else None) for l in LANGUAGES],
+                minimum=1 if is_new else 0,
+                instruction="(space: 선택/해제, enter: 다음, ←: 이전)",
+            )
+            if answer is BACK:
+                i -= 1
+                continue
+            new = [l for l in answer if l not in existing]
+            if new:
+                draft.names[pid] = new
+                console.print("  → " + ", ".join(f"{pid}/dist/{l}" for l in new), markup=False)
+            else:
+                draft.names.pop(pid, None)
+            i += 1
+            continue
 
         def check(raw: str, existing=existing, is_new=is_new) -> str | None:
             parsed = parse_names(raw, existing=existing)
@@ -236,16 +277,5 @@ def _names_step(draft: Draft, state: RepoState, prompter: Prompter, console: Con
         else:
             draft.names.pop(pid, None)
 
-        askable = [o for o in platform.options if not o.fixed]
-        if is_new and askable and f"options:{pid}" not in draft.given:
-            current = draft.options.get(pid, {})
-            opt_answer = prompter.checkbox(
-                f"{pid} 플랫폼 옵션",
-                [Item(o.id, f"{o.id:<8} {o.label}", current.get(o.id, o.default)) for o in askable],
-                instruction="(space: 선택/해제, enter: 다음, ←: 이름 다시 입력)",
-            )
-            if opt_answer is BACK:
-                continue
-            draft.options[pid] = {o.id: o.id in opt_answer for o in askable}
         i += 1
     return BACK if i < 0 else None

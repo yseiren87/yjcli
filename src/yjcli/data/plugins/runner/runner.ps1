@@ -52,13 +52,13 @@ if ($Child) {
 }
 
 if ($Service) {
-    if ($Service -eq "proto" -or -not (Test-Path (Join-Path $PlatformDir $Service) -PathType Container)) {
+    if (-not (Test-Path (Join-Path $PlatformDir $Service) -PathType Container)) {
         Write-Host "unknown service: $Service (expected $PlatformDir\$Service)"
         exit 1
     }
     $services = @($Service)
 } else {
-    $services = @(Get-ChildItem -Path $PlatformDir -Directory | Where-Object { $_.Name -ne "proto" } |
+    $services = @(Get-ChildItem -Path $PlatformDir -Directory |
         Sort-Object Name | ForEach-Object { $_.Name })
 }
 

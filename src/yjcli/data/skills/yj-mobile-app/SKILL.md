@@ -53,7 +53,7 @@ Missing domain ≠ put feature logic in `main.dart` / router registration.
 - Keep one file per feature directly under `providers/`, `repositories/`, and `api/`; do not add a redundant `{feature}/` directory for a single file.
 - Container screen watches providers and passes plain props to presentational widgets.
 - Routes declared at entry (thin); feature work stays in providers/api.
-- Prefer symlink/consume `backend-msa/proto/dist/dart` for MSA contracts when present. Do not copy `.proto` into the app.
+- For gRPC contracts depend on `proto/dist/dart` by path (see "Shared proto contract"). Do not copy `.proto` into the app.
 
 ## Import direction
 
@@ -66,5 +66,7 @@ view (presentational) -> constructor params only
 
 ## Editing scope
 
-- `mobile-app/{app_name}/` only (+ linked proto dist if needed).
+- `mobile-app/{app_name}/` only (+ the root `proto/` when a contract change is part of the task).
 - Do not apply React/Electron folder conventions here.
+
+{{include:proto-contract.md}}

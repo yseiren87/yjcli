@@ -21,7 +21,6 @@ backend/
     services/           # flow
     domains/            # domain (optional — owned concepts only)
     modules/            # infra
-  proto/                # optional — only with the gRPC option
 ```
 
 No `views/` here: server-rendered HTML belongs in `backend-ssr/` (`yj-backend-ssr`).
@@ -33,6 +32,8 @@ No `views/` here: server-rendered HTML belongs in `backend-ssr/` (`yj-backend-ss
 {{include:backend-base.md}}
 
 {{include:grpc-optional.md}}
+
+{{include:proto-contract.md}}
 
 ## native_host notes
 

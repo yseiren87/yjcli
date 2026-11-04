@@ -44,7 +44,8 @@ LlmOpt = Annotated[Optional[list[str]], typer.Option("--llm", "-l", help=f"LLM �
 PlatformOpt = Annotated[Optional[list[str]], typer.Option("--platform", "-p", help=f"플랫폼 (반복/쉼표, all). {_IDS['platform']}")]
 PluginOpt = Annotated[Optional[list[str]], typer.Option("--plugin", help=f"플러그인 (반복/쉼표, all, none). {_IDS['plugin']}")]
 NameOpt = Annotated[Optional[list[str]], typer.Option("--name", "-n", help="서비스 이름: <platform>=a1,a2 (반복)")]
-OptionOpt = Annotated[Optional[list[str]], typer.Option("--option", "-o", help="플랫폼 옵션: <platform>=proto 또는 no-proto")]
+ProtoLangOpt = Annotated[Optional[list[str]], typer.Option(
+    "--proto-lang", help="proto 계약에서 코드를 생성할 언어 (반복/쉼표): go, dart, python")]
 ModeOpt = Annotated[Optional[str], typer.Option("--mode", help="new | update (기본: 자동 감지)")]
 YesOpt = Annotated[bool, typer.Option("--yes", "-y", help="확인 없이 실행")]
 DryRunOpt = Annotated[bool, typer.Option("--dry-run", help="계획만 출력하고 종료")]
@@ -85,7 +86,7 @@ def run(
     root: Path,
     *,
     mode: str | None,
-    llm, platform, plugin, name, option,
+    llm, platform, plugin, name, proto_lang,
     yes: bool,
     dry_run: bool,
     force: bool,
@@ -100,7 +101,7 @@ def run(
         state = read_state(root)
     except ValueError as exc:
         _fail([str(exc)])
-    if state.manifest and manifest_mod.unsupported(state.manifest.yjcli_version):
+    if state.manifest and manifest_mod.unsupported(state.manifest.yjcli_version, package_version()):
         _fail([
             f"yjcli {state.manifest.yjcli_version} 로 구성된 저장소는 지원하지 않습니다 "
             f"({manifest_mod.MIN_SUPPORTED} 이상만, 하위 호환 없음).",
@@ -112,7 +113,7 @@ def run(
             f"({state.manifest.yjcli_version})보다 낮습니다. 옛 내용으로 덮어쓰지 않도록 중단합니다.",
             "`uv tool upgrade yjcli` 후 다시 실행하세요 (그래도 진행하려면 --force).",
         ])
-    draft, errors = from_args(state, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option)
+    draft, errors = from_args(state, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, proto_lang=proto_lang)
     if errors:
         _fail(errors)
     draft.purge = purge
@@ -187,7 +188,7 @@ def start(
     platform: PlatformOpt = None,
     plugin: PluginOpt = None,
     name: NameOpt = None,
-    option: OptionOpt = None,
+    proto_lang: ProtoLangOpt = None,
     mode: ModeOpt = None,
     yes: YesOpt = False,
     dry_run: DryRunOpt = False,
@@ -200,7 +201,7 @@ def start(
 
     기존 저장소에서는 지정하지 않은 단계가 manifest 값을 그대로 씁니다.
     """
-    run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
+    run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, proto_lang=proto_lang,
         yes=yes, dry_run=dry_run, force=force, diff=diff, purge=purge)
 
 
@@ -221,7 +222,7 @@ def update(
         draft.given |= {"llms", "platforms", "plugins"}
         draft.given |= {f"names:{p}" for p in state.manifest.platforms}
 
-    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, proto_lang=None,
         yes=yes, dry_run=dry_run, force=force, diff=diff, purge=purge, prepare=prepare)
 
 
@@ -271,7 +272,7 @@ def _change_plugins(ids: list[str], *, add: bool, yes: bool, dry_run: bool, purg
         draft.plugins = [p.id for p in PLUGINS if p.id in selected]
         _keep_rest(draft, state)
 
-    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, proto_lang=None,
         yes=yes, dry_run=dry_run, force=False, purge=purge, prepare=prepare)
 
 
@@ -294,7 +295,7 @@ def _change_llms(ids: list[str], *, add: bool, yes: bool, dry_run: bool, purge: 
         draft.llms = [l.id for l in LLMS if l.id in selected]
         _keep_rest(draft, state)
 
-    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, option=None,
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=None, proto_lang=None,
         yes=yes, dry_run=dry_run, force=False, purge=purge, prepare=prepare)
 
 
@@ -333,7 +334,7 @@ def plan_cmd(
     platform: PlatformOpt = None,
     plugin: PluginOpt = None,
     name: NameOpt = None,
-    option: OptionOpt = None,
+    proto_lang: ProtoLangOpt = None,
     mode: ModeOpt = None,
     force: ForceOpt = False,
     diff: DiffOpt = False,
@@ -341,7 +342,7 @@ def plan_cmd(
     path: PathOpt = Path("."),
 ) -> None:
     """실행하지 않고 계획만 출력 (--dry-run 과 같음)."""
-    run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, option=option,
+    run(path, mode=mode, llm=llm, platform=platform, plugin=plugin, name=name, proto_lang=proto_lang,
         yes=True, dry_run=True, force=force, diff=diff, purge=purge)
 
 
@@ -365,7 +366,7 @@ def service_add(
         if not _interactive() and not any(g.startswith("names:") for g in draft.given):
             _fail(["--name <platform>=<이름들> 이 필요합니다"], title="missing")
 
-    run(path, mode="update", llm=None, platform=None, plugin=None, name=name, option=None,
+    run(path, mode="update", llm=None, platform=None, plugin=None, name=name, proto_lang=None,
         yes=yes, dry_run=dry_run, force=False, prepare=prepare)
 
 
@@ -378,7 +379,7 @@ def status(path: PathOpt = Path(".")) -> None:
         console.print("yjcli 로 구성되지 않은 폴더입니다 (.yjcli/manifest.toml 없음).")
         raise typer.Exit(code=1)
     console.print(f"yjcli {m.yjcli_version} 로 구성됨 (설치된 버전 {package_version()})", markup=False)
-    if manifest_mod.unsupported(m.yjcli_version):
+    if manifest_mod.unsupported(m.yjcli_version, package_version()):
         console.print(f"[yellow]  {manifest_mod.MIN_SUPPORTED} 이전 버전으로 구성된 저장소라 지원하지 않습니다 — 다시 구성하세요 (README)[/yellow]")
     elif manifest_mod.is_older(package_version(), m.yjcli_version):
         console.print("[yellow]  설치된 yjcli 가 더 낮습니다 — `uv tool upgrade yjcli` 필요[/yellow]")

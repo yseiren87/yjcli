@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from yjcli.catalog.platforms import RESERVED_SERVICE_NAMES
+from yjcli.catalog.platforms import LANGUAGE_BY_ID
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 _SPLIT_RE = re.compile(r"[\s,]+")
@@ -35,10 +35,21 @@ def parse_names(raw: str, *, existing: set[str] | frozenset[str] = frozenset()) 
         seen.add(token)
         if not NAME_RE.match(token):
             result.errors.append(f"'{token}': 영문/숫자/_/- 만 사용할 수 있고 - 로 시작할 수 없습니다")
-        elif token in RESERVED_SERVICE_NAMES:
-            result.errors.append(f"'{token}': 예약된 이름입니다")
         elif token in existing:
             # Declarative: naming an existing service means "keep it", not an error.
+            result.notes.append(f"{token}: 이미 있음 (변경 없음)")
+        else:
+            result.names.append(token)
+    return result
+
+
+def parse_languages(raw: str, *, existing: set[str] | frozenset[str] = frozenset()) -> ParsedNames:
+    """Languages of the contract platform; same shape as parse_names."""
+    result = ParsedNames()
+    for token in dict.fromkeys(t for t in _SPLIT_RE.split(raw.strip()) if t):
+        if token not in LANGUAGE_BY_ID:
+            result.errors.append(f"'{token}': 지원하지 않는 언어입니다 (사용 가능: {', '.join(LANGUAGE_BY_ID)})")
+        elif token in existing:
             result.notes.append(f"{token}: 이미 있음 (변경 없음)")
         else:
             result.names.append(token)

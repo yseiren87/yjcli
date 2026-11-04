@@ -181,11 +181,6 @@ service-account*.json
 secrets/
 .secrets/
 
-# ----- Protobuf generated (keep sources; ignore accidental local dumps) -----
-# Prefer committing language dists under <platform>/proto/dist/{lang}/ when intentional.
-# Uncomment if generated stubs must stay local-only:
-# */proto/dist/
-
 # ----- Misc -----
 *.bak
 *.orig

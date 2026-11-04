@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build for platform "{{platform}}" (yjcli builder plugin; repository-owned).
 #
-# Read tools/builder/GUIDE.md, then implement build_one below{{#if proto}} (and build_proto){{/if}}.
+# Read tools/builder/GUIDE.md, then implement build_one below.
 # Everything else — argument checks, service list, emptying
 # dist/{{platform}}/<service>/, writing BUILD_INFO — already works.
 # This is the entry point `make {{platform}}-build-<env>` calls. It does not have
@@ -33,20 +33,6 @@ build_one() {
   # npm ci && npm run build && cp -R dist/. "$OUT/"
   # uv build --wheel --out-dir "$OUT"
 }
-{{#if proto}}
-
-# build_proto
-#   Generate code from $PLATFORM_DIR/proto/*.proto into $PLATFORM_DIR/proto/dist/<lang>/.
-#   Runs once before the services when $PLATFORM_DIR/proto/ exists.
-build_proto() {
-  echo "proto codegen for $PLATFORM is not implemented — read tools/builder/GUIDE.md" >&2
-  return 1
-  # Example:
-  # protoc --proto_path="$PLATFORM_DIR/proto" \
-  #   --go_out="$PLATFORM_DIR/proto/dist/go" --go-grpc_out="$PLATFORM_DIR/proto/dist/go" \
-  #   "$PLATFORM_DIR"/proto/*.proto
-}
-{{/if}}
 # -----------------------------------------------------------------------------
 
 usage() {
@@ -60,7 +46,7 @@ case "$ENVIRONMENT" in
 esac
 
 if [ -n "$NAME" ]; then
-  if [ "$NAME" = "proto" ] || [ ! -d "$PLATFORM_DIR/$NAME" ]; then
+  if [ ! -d "$PLATFORM_DIR/$NAME" ]; then
     echo "unknown service: $NAME (expected $PLATFORM_DIR/$NAME)" >&2
     exit 1
   fi
@@ -69,9 +55,6 @@ else
   services=()
   for dir in "$PLATFORM_DIR"/*/; do
     [ -d "$dir" ] || continue
-    case "$(basename "$dir")" in
-      proto) continue ;;
-    esac
     services+=("$(basename "$dir")")
   done
 fi
@@ -90,11 +73,12 @@ resolve_version() {
   fi
   printf '%s' "${v:-${VERSION:-unknown}}"
 }
-{{#if proto}}
+{{#if needs_proto}}
 
-if [ -d "$PLATFORM_DIR/proto" ]; then
-  echo "[build] proto"
-  build_proto
+# This platform consumes the shared proto contract: generate it first.
+if [ -x "$ROOT_DIR/tools/builder/proto/builder.sh" ]; then
+  echo "[build] proto contract (tools/builder/proto/builder.sh)"
+  "$ROOT_DIR/tools/builder/proto/builder.sh"
 fi
 {{/if}}
 

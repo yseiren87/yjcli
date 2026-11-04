@@ -62,7 +62,7 @@ infra  = modules/{module}.{ext} # config, http, db, output formatters
 
 ## Contracts
 
-- Consume `backend-msa/proto/dist/{lang}` (symlink) for MSA contracts when a command must call backend services directly; do not copy `.proto` sources into `cli/`.
+- When a command must call backend services directly, depend on `proto/dist/<lang>` by path (see "Shared proto contract"); do not copy `.proto` sources into `cli/`.
 
 ## Import direction
 
@@ -80,3 +80,5 @@ Forbidden: command→domain/db/http directly; service→stdout/argv; cross-platf
 
 - `cli/{app_name}/` only.
 - Native messaging hosts that belong to extensions live under `browser-extension/native_*` and use `yj-backend`, not this skill — unless the user places a pure CLI under `cli/`.
+
+{{include:proto-contract.md}}

@@ -1,7 +1,8 @@
 """Selection + repo state + catalog -> Plan (pure: reads disk, never writes).
 
 The plan is built in two halves and merged:
-  * code plan    — platform/service folders, stack files, .env.examples, options
+  * code plan    — platform/service folders, stack files, .env.examples, and the
+                   proto contract's per-language library manifests
   * tooling plan — agent wiring (AGENTS.md, CLAUDE.md, skills), env value files
                    (tools/secrets/, every service), plugin files
 
@@ -15,18 +16,19 @@ Every tracked file carries a policy:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from yjcli.catalog import data_root
 from yjcli.catalog.llms import LLM_BY_ID, LLMS
-from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS, Platform
+from yjcli.catalog.platforms import LANGUAGE_BY_ID, LANGUAGES, PLATFORM_BY_ID, PLATFORMS, PROTO, Platform
 from yjcli.catalog.plugins import MAKEFILE_PLUGINS, MANAGED, PLUGIN_BY_ID, PLUGINS, SEED
 from yjcli.catalog.skills import CORE_SKILL, SKILL_BY_ID, routing_rows, skills_for
 from yjcli.core import render as r
 from yjcli.core.manifest import MANIFEST_PATH, FileRecord, Manifest, dumps, sha256
 from yjcli.core.references import stale_references
-from yjcli.core.selection import Draft, option_values
+from yjcli.core.selection import Draft
 from yjcli.core.state import RepoState
 
 MERGE = "merge"
@@ -101,7 +103,7 @@ def _read(path: Path) -> str:
 # --------------------------------------------------------------------------- context
 
 
-def _context(llms: list[str], platforms: list[str], plugins: list[str], skills: list[str]) -> dict:
+def _context(llms: list[str], platforms: list[str], plugins: list[str], skills: list[str], repo: str) -> dict:
     roots = []
     for p in PLATFORMS:
         if p.id in platforms:
@@ -117,9 +119,10 @@ def _context(llms: list[str], platforms: list[str], plugins: list[str], skills: 
         "plugins": "\n\n".join(fragments)
         or "No run/build/deploy tooling is installed: this repository holds code and env\n"
         "values only. Do not add run/build/deploy scripts or Makefiles unless the user asks.",
-        "platforms": " ".join(p.id for p in PLATFORMS if p.id in platforms),
+        # Platforms with services (run/build/deploy targets); the contract has its own target.
+        "platforms": " ".join(p.id for p in PLATFORMS if p.id in platforms and not p.is_contract),
         "env_kinds": _env_kinds(platforms),
-        "has_proto": any(_has_proto(PLATFORM_BY_ID[p]) for p in platforms),
+        **_proto_names(repo),
     }
     for plugin in PLUGINS:
         ctx[plugin.id] = plugin.id in plugins
@@ -128,12 +131,26 @@ def _context(llms: list[str], platforms: list[str], plugins: list[str], skills: 
     return ctx
 
 
-def _has_proto(platform: Platform) -> bool:
-    return any(o.id == "proto" for o in platform.options)
+def _proto_names(repo: str) -> dict[str, str]:
+    """Default library names of the proto contract, derived from the repository folder."""
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", repo.lower()) if w] or ["app"]
+    if words[0][0].isdigit():
+        words.insert(0, "repo")
+    snake = "_".join(words)
+    return {
+        "proto_go_module": f"{'-'.join(words)}/proto",
+        "proto_dart_package": f"{snake}_proto",
+        "proto_python_dist": f"{'-'.join(words)}-proto",
+        "proto_python_package": f"{snake}_proto",
+    }
 
 
 def _service_list(services: dict[str, list[str]]) -> str:
-    rows = [f"- `{p}/`: " + ", ".join(f"`{s}`" for s in names) for p, names in services.items() if names]
+    rows = [
+        f"- `{p}/`: " + ", ".join(f"`{s}`" for s in names)
+        for p, names in services.items()
+        if names and not PLATFORM_BY_ID[p].is_contract
+    ]
     return "\n".join(rows) or "- (none yet)"
 
 
@@ -182,9 +199,6 @@ def _layout_block(llms: list[str], platforms: list[str], plugins: list[str]) -> 
         if p.id not in platforms:
             continue
         rows.append((f"`{p.id}/`", f"{p.role} — skill {', '.join(f'`{s}`' for s in p.skills)}"))
-        for option in p.options:
-            folder = option.creates[0].split("/", 1)[0]
-            rows.append((f"`{p.id}/{folder}/`", ("" if option.fixed else "(optional) ") + "gRPC/protobuf contract"))
     if platforms:
         rows.append(("`tools/secrets/<platform>/<service>/`",
                      "Per-service env values (`.env.local-dev`, `.env.<environment>`) — committed in plain text"))
@@ -194,15 +208,18 @@ def _layout_block(llms: list[str], platforms: list[str], plugins: list[str]) -> 
     return r.markdown_table(("Path", "Role"), rows)
 
 
-def _gitignore_block() -> str:
-    return "\n".join([
+def _gitignore_block(platforms: list[str]) -> str:
+    lines = [
         "# Managed by yjcli — regenerated on every run.",
         "# Env values are committed in plain text (private repos only).",
         "!tools/secrets/",
         "!tools/secrets/**",
         "# Build output (tools/builder).",
         "/dist/",
-    ])
+    ]
+    if PROTO in platforms:
+        lines += ["# Generated proto libraries are committed (consumed by path dependency).", "!proto/dist/"]
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- specs
@@ -219,7 +236,14 @@ def _service_env_kind(platform: Platform, service: str) -> str:
     return variant.env_kind if variant else platform.env_kind
 
 
-def _add_code(desired: _Desired, platform: Platform, service: str, is_new_platform: bool, opts: dict[str, bool]) -> None:
+def _add_language(desired: _Desired, platform: Platform, lang: str, ctx: dict) -> None:
+    """Library skeleton for one generated language of the proto contract (code, created once)."""
+    manifest = LANGUAGE_BY_ID[lang].manifest
+    text = r.render(_read(_templates() / "platform" / "proto" / lang / manifest), ctx)
+    desired.files[f"{platform.id}/dist/{lang}/{manifest}"] = Spec(text.encode(), "code")
+
+
+def _add_code(desired: _Desired, platform: Platform, service: str) -> None:
     base = f"{platform.id}/{service}"
     variant = platform.variant_for(service)
     for sub in variant.service_dirs if variant else platform.service_dirs:
@@ -236,11 +260,6 @@ def _add_code(desired: _Desired, platform: Platform, service: str, is_new_platfo
                     desired.files[f"{base}/{file.name}"] = Spec(text.encode(), "code")
         for dest, content in platform.service_files:
             desired.files[f"{base}/{dest}"] = Spec(content.encode(), "code")
-    if is_new_platform:
-        for option in platform.options:
-            if opts.get(option.id):
-                for rel in option.creates:
-                    desired.files[f"{platform.id}/{rel}"] = Spec(b"", "code")
 
 
 ADDITIONS_DIR = Path(".yjcli") / "skills"
@@ -315,18 +334,24 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     )
 
     desired = _Desired()
-    ctx = _context(llms, platforms, plugins, skills)
+    ctx = _context(llms, platforms, plugins, skills, state.root.name)
     ctx["service_list"] = _service_list(services)
+    ctx["proto_languages"] = ", ".join(f"`{l}`" for l in services.get(PROTO, [])) or "(none yet)"
+    for lang in LANGUAGES:
+        ctx[f"proto_lang_{lang.id}"] = lang.id in services.get(PROTO, [])
 
-    # ---- code plan: only new services (and options of new platforms) ----
+    # ---- code plan: only new services / languages ----
     for pid, names in new_services.items():
         platform = PLATFORM_BY_ID[pid]
-        opts = option_values(draft, pid)
         for name in names:
-            _add_code(desired, platform, name, pid in new_platforms, opts)
+            if platform.is_contract:
+                _add_language(desired, platform, name, ctx)
+            else:
+                _add_code(desired, platform, name)
     for pid in new_platforms:
         if pid not in new_services:
-            plan.warnings.append(f"{pid}: 서비스 이름이 없어 플랫폼 폴더를 만들지 않습니다")
+            what = "생성할 언어가" if PLATFORM_BY_ID[pid].is_contract else "서비스 이름이"
+            plan.warnings.append(f"{pid}: {what} 없어 플랫폼 폴더를 만들지 않습니다")
 
     # ---- agent wiring ----
     agents_tpl = _read(_templates() / "root" / "AGENTS.md")
@@ -352,6 +377,8 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     # ---- env values: every service (seed, created with the service) ----
     for p in platforms:
         platform = PLATFORM_BY_ID[p]
+        if platform.is_contract:
+            continue
         for s in services[p]:
             kind = _service_env_kind(platform, s)
             for env in SECRET_ENVS:
@@ -374,9 +401,10 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
                 targets = [({}, ctx, plugin_new)]
             else:
                 targets = [
-                    ({"platform": p}, {**ctx, "platform": p, "proto": _has_proto(PLATFORM_BY_ID[p])},
+                    ({"platform": p}, {**ctx, "platform": p, "needs_proto": PROTO in PLATFORM_BY_ID[p].requires},
                      plugin_new or p in new_platforms)
-                    for p in platforms if services[p]
+                    for p in platforms
+                    if services[p] and PLATFORM_BY_ID[p].kind in pf.kinds
                 ]
             for values, render_ctx, introduce in targets:
                 content = r.render(_read(_plugin_data() / pf.template), render_ctx).encode()
@@ -446,7 +474,7 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
     # AGENTS.md (seed + managed blocks)
     _plan_agents(plan, root, agents_tpl, blocks, old_files, records)
     # .gitignore (merge block)
-    _plan_gitignore(plan, root, _gitignore_block(), records)
+    _plan_gitignore(plan, root, _gitignore_block(platforms), records)
 
     # ---- files yjcli tracked before but no longer wants (owner gone) ----
     plan.purge = draft.purge

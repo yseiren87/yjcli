@@ -1,4 +1,9 @@
-"""Platforms: code-only scaffolds (service folders, stack files, .env.examples)."""
+"""Platforms: code-only scaffolds (service folders, stack files, .env.examples).
+
+Most platforms hold services. A *contract* platform (`proto`) holds no services:
+it is one shared schema folder whose "units" are the languages code is
+generated for (`proto/dist/<lang>/`).
+"""
 
 from __future__ import annotations
 
@@ -6,18 +11,12 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class Option:
-    """Platform-level code option, asked once when the platform is created.
-
-    Whether it is "on" later is decided by disk state (the created folder), not
-    by the manifest — yjcli only creates the starting files and never deletes them.
-    """
+class Language:
+    """Code-generation target of the contract platform (library under dist/<id>/)."""
 
     id: str
     label: str
-    creates: tuple[str, ...]  # paths relative to the platform root
-    default: bool = False
-    fixed: bool = False  # always applied, never asked
+    manifest: str  # library manifest seeded under proto/dist/<id>/ (template file name)
 
 
 @dataclass(frozen=True)
@@ -36,13 +35,18 @@ class Platform:
     hint: str
     role: str  # English role text for the AGENTS.md layout table
     skills: tuple[str, ...]
-    env_kind: str  # listen | worker | app
+    env_kind: str  # listen | worker | app ("" for the contract platform)
     service_dirs: tuple[str, ...]
     env_vars: dict[str, str] = field(default_factory=dict)
     stack_template: str | None = None  # dir under data/templates/platform
     service_files: tuple[tuple[str, str], ...] = ()  # (dest, content)
-    options: tuple[Option, ...] = ()
     variants: tuple[ServiceVariant, ...] = ()
+    kind: str = "service"  # service | contract
+    requires: tuple[str, ...] = ()  # platforms selected automatically with this one
+
+    @property
+    def is_contract(self) -> bool:
+        return self.kind == "contract"
 
     def variant_for(self, service: str) -> ServiceVariant | None:
         for variant in self.variants:
@@ -53,11 +57,14 @@ class Platform:
 
 _BACKEND_DIRS = ("apps", "services", "domains", "modules")
 
-_PROTO = Option(
-    id="proto",
-    label="gRPC/protobuf 사용 (proto/ 생성)",
-    creates=("proto/.gitkeep", "proto/dist/.gitkeep"),
+LANGUAGES: tuple[Language, ...] = (
+    Language("go", "Go", "go.mod"),
+    Language("dart", "Dart", "pubspec.yaml"),
+    Language("python", "Python", "pyproject.toml"),
 )
+LANGUAGE_BY_ID: dict[str, Language] = {l.id: l for l in LANGUAGES}
+
+PROTO = "proto"
 
 PLATFORMS: tuple[Platform, ...] = (
     Platform(
@@ -68,7 +75,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_kind="listen",
         env_vars={"__PORT__": "8080"},
         service_dirs=_BACKEND_DIRS,
-        options=(_PROTO,),
     ),
     Platform(
         id="backend-msa",
@@ -78,7 +84,7 @@ PLATFORMS: tuple[Platform, ...] = (
         env_kind="listen",
         env_vars={"__PORT__": "8080"},
         service_dirs=_BACKEND_DIRS,
-        options=(Option(id="proto", label=_PROTO.label, creates=_PROTO.creates, fixed=True),),
+        requires=(PROTO,),
     ),
     Platform(
         id="backend-ssr",
@@ -88,7 +94,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_kind="listen",
         env_vars={"__PORT__": "8080"},
         service_dirs=(*_BACKEND_DIRS, "views"),
-        options=(_PROTO,),
     ),
     Platform(
         id="frontend",
@@ -148,10 +153,23 @@ PLATFORMS: tuple[Platform, ...] = (
         env_kind="worker",
         service_dirs=_BACKEND_DIRS,
     ),
+    Platform(
+        id=PROTO,
+        hint="공유 gRPC/protobuf 계약 (언어별 라이브러리 생성)",
+        role="Shared gRPC/protobuf contract: `*.proto` schemas and generated libraries in `proto/dist/<lang>/`",
+        skills=("yj-proto",),
+        env_kind="",
+        service_dirs=(),
+        kind="contract",
+    ),
 )
 
 PLATFORM_BY_ID: dict[str, Platform] = {p.id: p for p in PLATFORMS}
 
-# Folder names under a platform root that are not services.
-NON_SERVICE_DIRS: frozenset[str] = frozenset({"proto"})
-RESERVED_SERVICE_NAMES: frozenset[str] = NON_SERVICE_DIRS
+
+def with_required(platforms: list[str]) -> tuple[list[str], list[str]]:
+    """(selection plus platforms it requires, in catalog order; the ones added)."""
+    wanted = set(platforms)
+    added = [r for p in platforms for r in PLATFORM_BY_ID[p].requires if r not in wanted]
+    wanted.update(added)
+    return [p.id for p in PLATFORMS if p.id in wanted], list(dict.fromkeys(added))

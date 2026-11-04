@@ -21,7 +21,6 @@ backend-ssr/
     domains/            # domain (optional — owned concepts only)
     modules/            # infra
     views/              # view — templates (required)
-  proto/                # optional — only with the gRPC option
 ```
 
 `HOST`/`PORT` are required (listen).
@@ -47,6 +46,8 @@ Rules:
 - A JSON-API-only service belongs in `backend/` (`yj-backend`), not here.
 
 {{include:grpc-optional.md}}
+
+{{include:proto-contract.md}}
 
 ## Editing scope
 

@@ -44,7 +44,7 @@ yjcli start -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,bui
 | 2 | Platforms | `-p/--platform …` · `all` | Multi-select |
 | 3 | Plugins | `--plugin runner,builder,deployer` · `all` · `none` | `deployer` can be checked only after `builder`; on the CLI it fails without `builder` |
 | 4 | Service names | `-n/--name <platform>=a1,a2` (repeatable) | One screen per platform; split names with spaces or commas. `-n` alone also selects the platform |
-| — | Platform options | `-o/--option backend=proto` | Asked right after the names of a new platform |
+| — | Proto languages | `--proto-lang go,dart,python` | The `proto` platform's screen in step 4 asks for languages instead of names; `--proto-lang` also selects `proto` |
 | 5 | Confirm | `-y/--yes` · `--dry-run` | Non-interactive runs need `--yes` or `--dry-run` |
 
 `←` goes back one screen. Skills are not asked for — they follow the platforms.
@@ -55,15 +55,18 @@ Platforms hold **code only**: service folders, stack files and `.env.examples`. 
 
 | Platform | What | Skill |
 |----------|------|-------|
-| `backend` | single backend (API); optional `proto` | `yj-backend` |
-| `backend-msa` | gRPC microservices; `proto/` always | `yj-backend-msa` |
-| `backend-ssr` | server-rendered backend; `views/` always; optional `proto` | `yj-backend-ssr` |
+| `backend` | single backend (API) | `yj-backend` |
+| `backend-msa` | gRPC microservices; selects `proto` automatically | `yj-backend-msa` |
+| `backend-ssr` | server-rendered backend; `views/` always | `yj-backend-ssr` |
 | `frontend` | Vite + React + TS | `yj-frontend` |
 | `mobile-app` | Flutter | `yj-mobile-app` |
 | `pc-app` | Electron | `yj-pc-app` |
 | `cli` | CLI apps | `yj-cli` |
 | `browser-extension` | MV3; `native_*` services are native hosts | `yj-browser-extension` + `yj-backend` |
 | `scheduler` | periodic batch jobs | `yj-scheduler` |
+| `proto` | shared gRPC/protobuf contract (no services; you pick languages) | `yj-proto` |
+
+The `proto` platform is the repository's only proto location: schemas in `proto/*.proto` at the root, generated libraries in `proto/dist/<language>/` for the languages you pick (`go`, `dart`, `python`). Each language folder starts with its library manifest — Go `go.mod`, Dart `pubspec.yaml`, Python `pyproject.toml` — named after the repository folder (e.g. `my-shop/proto`, `my_shop_proto`, `my-shop-proto`). Other platforms consume it through a path dependency, never a copy. Generated code is committed (`!proto/dist/` in the managed `.gitignore` block). Add a language later with `yjcli start --proto-lang <language>`.
 
 ## Plugins (repository tooling under `tools/`)
 
@@ -72,7 +75,7 @@ yjcli builds the structure, not your build logic. Each plugin installs a **`tool
 | Plugin | Command | You implement | Already done by the skeleton |
 |--------|---------|---------------|------------------------------|
 | `runner` | `make <platform> [NAME=<service>]` | `run_one` — start one service | loads `.env.local-dev`, runs all services concurrently with `[service]` prefixes, Ctrl+C / failure stops all |
-| `builder` | `make <platform>-build-<env> [NAME=…]` | `build_one` — build into `dist/<platform>/<service>/` (+ `build_proto` where `proto/` can exist) | empties the output folder, writes `BUILD_INFO`, removes failed output |
+| `builder` | `make <platform>-build-<env> [NAME=…]`, `make proto-build [PROTO_LANG=…]` | `build_one` — build into `dist/<platform>/<service>/`; for `proto`, `gen_<language>` in `tools/builder/proto/builder.sh` | empties the output folder, writes `BUILD_INFO`, removes failed output; `backend-msa` builds run proto codegen first |
 | `deployer` (needs `builder`) | `make <platform>-deploy-<env> [NAME=…]` | `deploy_one` — ship `dist/<platform>/<service>/` | checks the build and env file exist, warns on environment mismatch; never builds |
 
 `<env>` is `development` or `production`. On Windows use `make.ps1` with the same targets: `powershell -ExecutionPolicy Bypass -File make.ps1 <target> [NAME=<service>]`. Builds contain no env files; Docker deployments inject them at run time with `docker run --env-file tools/secrets/<platform>/<service>/.env.<env>`.
@@ -122,9 +125,19 @@ yjcli never deletes services or files you own. Removing a plugin or LLM (or dele
 
 yjcli also reports **stale references**: lines outside the yjcli blocks of `AGENTS.md`, in `CLAUDE.md` or in `.yjcli/skills/*.md` that point at a plugin, LLM, platform or service that is not set up (e.g. `tools/runner/` after `yjcli plugin remove runner`), with file and line number. It never edits them; fix them by hand.
 
-## Rebuilding a repo made with an older yjcli (0.3.x / 0.2.x)
+## Rebuilding a repo made with an older yjcli (0.4.x / 0.3.x / 0.2.x)
 
-yjcli 0.4 does not work on repos set up by an earlier version: it stops with a message instead of updating them. Remove what the old yjcli generated and set the repo up again; service source code stays where it is. Work on a new branch.
+yjcli 0.5 does not work on repos set up by an earlier version: it stops with a message instead of updating them. Remove what the old yjcli generated and set the repo up again; service source code stays where it is. Work on a new branch.
+
+**From 0.4.x** only the proto layout changed, so it is short:
+
+1. Move the schemas to the root: `mkdir -p proto && git mv backend-msa/proto/*.proto proto/` (likewise `backend/proto`, `backend-ssr/proto` if you used them), then delete the old `<platform>/proto/` folders including their generated `dist/`.
+2. Delete `.yjcli/manifest.toml` (keep `.yjcli/skills/`), and the `tools/builder/<platform>/builder.sh` / `.ps1` you never implemented (every function still says "is not implemented") so the 0.5 skeleton replaces them — before step 3, or they count as opted out.
+3. Set up again with the same selection plus the languages: `yjcli start -l <llms> -p <platforms> --plugin <plugins> --proto-lang go,dart --force --dry-run`, then the same with `-y`. `--force` is needed because without a manifest yjcli does not recognise its own skills, Makefile and GUIDEs; it only overwrites those. Your AGENTS.md text outside the blocks, the scripts you implemented and env values are kept.
+4. Move your codegen from `build_proto` (in `tools/builder/<platform>/builder.sh` / `.ps1`) into `gen_<language>` in `tools/builder/proto/builder.sh` / `.ps1`, writing to `proto/dist/<language>/`; then remove `build_proto` from the platform builders.
+5. Point consumers at `proto/dist/<language>/` with a path dependency (Go `replace`, Dart `path:`, Python editable path) instead of `backend-msa/proto/dist/...` symlinks, and regenerate: `make proto-build`.
+
+**From 0.3.x / 0.2.x:**
 
 1. **Save what you will move back:** copy `AGENTS.md` aside (your project notes), and any run/build/deploy logic or Dockerfiles you wrote — 0.3.x: `RUN_COMMAND` lines in `tools/secrets/**/.env.local-dev`, `tools/builder/<platform>/{build,deploy}-*.sh`, service `Dockerfile`s; 0.2.x: `<platform>/scripts/`, service `Dockerfile`s.
 2. **0.2.x only — rename platforms and move env values:**
@@ -132,9 +145,9 @@ yjcli 0.4 does not work on repos set up by an earlier version: it stops with a m
    - `git mv backend backend-msa`, then move each `backend-service/<svc>` to `backend-ssr/<svc>` if it has `views/`, otherwise to `backend/<svc>`.
    - Move every `<platform>/<service>/.env.*` except `.env.examples` to `tools/secrets/<platform>/<service>/`.
 3. **Delete the old yjcli output:** `.yjcli/`, `AGENTS.md`, `CLAUDE.md`, `Makefile`, `make.bat`, the `yj-*` folders in `.cursor/skills`, `.claude/skills`, `.agents/skills` (keep your own skills), service `Dockerfile` / `.dockerignore`, `.gitignore` if you never edited it, and — 0.3.x — `tools/runner/`, `tools/builder/`; 0.2.x — `*/scripts/`, `TOOLS.md`, `Diff.md`. **Keep `tools/secrets/`**: yjcli never overwrites existing value files (remove the `RUN_COMMAND` lines from them).
-4. **Set up again** with the platforms that exist (services are picked up from their folders): `yjcli start -l claude -p backend-msa,backend,frontend --plugin runner,builder,deployer --dry-run`, then the same with `-y`.
+4. **Set up again** with the platforms that exist (services are picked up from their folders): `yjcli start -l claude -p backend-msa,backend,frontend --plugin runner,builder,deployer --proto-lang go --dry-run`, then the same with `-y`. Move `backend-msa/proto/*.proto` to the root `proto/` first (see "From 0.4.x").
 5. **Move your content back:** project notes go outside the `<!-- yjcli:… -->` blocks of the new `AGENTS.md`; the run command goes into `run_one` (`tools/runner/<platform>/runner.sh` / `.ps1`); build logic into `build_one` (output to `dist/<platform>/<service>/`); deploy logic into `deploy_one`, with Dockerfiles under `tools/deployer/<platform>/` and env values passed at run time (`--env-file`) — see each `tools/<tool>/GUIDE.md`. Frontend apps' `vite.config.ts` should load env from `tools/secrets/frontend/<app>/` (`envDir`).
-6. **Fix old paths** in code, CI and symlinks (0.2.x: `backend/proto` → `backend-msa/proto`, `backend-service/…`, `<platform>/scripts/…`).
+6. **Fix old paths** in code, CI and symlinks (`backend-msa/proto` / `backend/proto` → root `proto/`, `backend-service/…`, `<platform>/scripts/…`).
 7. **Check:** `yjcli update --dry-run` reports no changes, `make <platform> NAME=<service>` runs once `run_one` is implemented, and `tools/secrets/` is tracked by git (private repos only) before you commit.
 
 ## Development
