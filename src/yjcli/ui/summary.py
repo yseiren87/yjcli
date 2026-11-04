@@ -98,14 +98,19 @@ def print_diffs(console: Console, plan: Plan, root: Path) -> None:
 def print_next_steps(console: Console, plan: Plan) -> None:
     console.print("[green]완료.[/green]")
     first = next(((p, s[0]) for p, s in plan.services.items() if s), None)
-    if "runner" in plan.plugins and first:
+    if first:
         p, s = first
-        console.print(f"  실행 명령 설정: tools/secrets/{p}/{s}/.env.local-dev 의 RUN_COMMAND", markup=False)
-        console.print(f"  실행: make {p}            (플랫폼 전체)", markup=False)
-        console.print(f"        make {p} NAME={s}   (서비스 하나)", markup=False)
-    if "builder" in plan.plugins and first:
+        console.print(f"  환경 값: tools/secrets/{p}/{s}/.env.*", markup=False)
+    if plan.plugins and first:
         p, s = first
-        console.print(f"  빌드: make {p}-build-development NAME={s}  (tools/builder/{p}/ 구현 필요)", markup=False)
+        console.print("  각 도구는 tools/<도구>/GUIDE.md 를 읽고 <도구>/<platform>/ 스크립트의 함수 하나를 구현하세요.", markup=False)
+        if "runner" in plan.plugins:
+            console.print(f"  실행: make {p} [NAME={s}]", markup=False)
+        if "builder" in plan.plugins:
+            console.print(f"  빌드: make {p}-build-development [NAME={s}]   → dist/{p}/{s}/", markup=False)
+        if "deployer" in plan.plugins:
+            console.print(f"  배포: make {p}-deploy-development [NAME={s}]", markup=False)
+        console.print("  Windows: powershell -ExecutionPolicy Bypass -File make.ps1 <target> [NAME=<service>]", markup=False)
     if not plan.plugins:
-        console.print("  플러그인 없이 코드만 만들었습니다. 나중에 `yjcli start` 로 추가할 수 있습니다.", markup=False)
+        console.print("  도구 플러그인 없이 코드와 환경 값만 만들었습니다. 나중에 `yjcli start` 로 추가할 수 있습니다.", markup=False)
     console.print("  서비스 추가: yjcli service add -n <platform>=<이름들>", markup=False)

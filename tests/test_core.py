@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 from yjcli.catalog import data_root
 from yjcli.catalog.platforms import PLATFORMS
-from yjcli.catalog.plugins import PLUGINS, drop_dependents, resolve_requires
+from yjcli.catalog.plugins import PLUGINS, disabled_reasons, drop_dependents, missing_requires
 from yjcli.catalog.skills import SKILLS, routing_rows, skills_for
 from yjcli.core import render as r
 from yjcli.core.manifest import FileRecord, Manifest, dumps, is_older, load
@@ -52,14 +52,16 @@ class NameTests(unittest.TestCase):
 
 
 class PluginTests(unittest.TestCase):
-    def test_requires_are_added(self) -> None:
-        self.assertEqual(resolve_requires(["runner"]), (["runner", "secrets"], ["secrets"]))
-        self.assertEqual(resolve_requires(["builder"])[0], ["secrets", "builder"])
+    def test_deployer_needs_builder(self) -> None:
+        self.assertEqual(len(missing_requires(["runner", "deployer"])), 1)
+        self.assertEqual(missing_requires(["builder", "deployer"]), [])
+        self.assertIsNotNone(disabled_reasons(["runner"])["deployer"])
+        self.assertIsNone(disabled_reasons(["builder"])["deployer"])
+        self.assertIsNone(disabled_reasons([])["builder"])
 
     def test_dropping_a_requirement_drops_dependents(self) -> None:
-        kept, dropped = drop_dependents(["runner", "builder"])
-        self.assertEqual(kept, [])
-        self.assertCountEqual(dropped, ["runner", "builder"])
+        self.assertEqual(drop_dependents(["runner", "deployer"]), (["runner"], ["deployer"]))
+        self.assertEqual(drop_dependents(["builder", "deployer"])[1], [])
 
 
 class SkillCatalogTests(unittest.TestCase):
@@ -101,6 +103,12 @@ class SkillCatalogTests(unittest.TestCase):
                 for bad in ("tools/", ".env.local-dev", "Do not use for"):
                     self.assertNotIn(bad, text, f"{skill.id}: {bad}")
 
+    def test_powershell_templates_are_ascii(self) -> None:
+        # Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI: UTF-8 dashes turn into
+        # smart quotes and break parsing.
+        for f in (data_root() / "plugins").rglob("*.ps1"):
+            self.assertTrue(f.read_bytes().isascii(), f"{f.relative_to(data_root())} has non-ASCII bytes")
+
     def test_native_route_comes_first(self) -> None:
         rows = routing_rows(["browser-extension"], skills_for(["browser-extension"]))
         self.assertIn("native_*", rows[0][0])
@@ -127,24 +135,49 @@ class PlannerTests(unittest.TestCase):
             for flag in ("--llm", "--plugin", "--name backend="):
                 self.assertIn(flag, gaps)
 
-    def test_code_only_plan_has_no_tooling(self) -> None:
+    def test_no_plugins_still_gets_env_values(self) -> None:
         with TemporaryDirectory() as tmp:
             plan = self._plan(Path(tmp), llm=["claude"], name=["backend=a1"], plugin=["none"])
             paths = {a.path for a in plan.actions}
             self.assertIn("backend/a1/.env.examples", paths)
-            self.assertFalse(any(p.startswith("tools/") or p == "Makefile" for p in paths))
+            self.assertIn("tools/secrets/backend/a1/.env.local-dev", paths)
+            tooling = [p for p in paths if p.startswith("tools/") and not p.startswith("tools/secrets/")]
+            self.assertEqual(tooling, [])
+            self.assertNotIn("Makefile", paths)
 
-    def test_plugin_seed_only_for_new_owners(self) -> None:
+    def test_secrets_seed_only_for_new_services(self) -> None:
         from yjcli.core import executor
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            executor.apply(self._plan(root, llm=["claude"], name=["backend=a1"], plugin=["builder"]), root)
-            (root / "backend/a1/Dockerfile").unlink()
+            executor.apply(self._plan(root, llm=["claude"], name=["backend=a1"], plugin=["none"]), root)
+            (root / "tools/secrets/backend/a1/.env.production").unlink()
             plan = self._plan(root, name=["backend=a2"])
             created = {a.path for a in plan.actions if a.kind == "create"}
-            self.assertIn("backend/a2/Dockerfile", created)
-            self.assertNotIn("backend/a1/Dockerfile", created)  # deleted on purpose = opted out
+            self.assertIn("tools/secrets/backend/a2/.env.production", created)
+            self.assertNotIn("tools/secrets/backend/a1/.env.production", created)  # deleted on purpose
+
+    def test_deployer_without_builder_is_an_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            state = read_state(Path(tmp))
+            _, errors = from_args(state, mode=None, llm=["claude"], platform=None, plugin=["deployer"],
+                                  name=["backend=a1"], option=None)
+            self.assertTrue(any("builder" in e for e in errors), errors)
+
+    def test_platform_scripts_render_proto_only_where_possible(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plan = self._plan(Path(tmp), llm=["claude"], name=["backend-msa=u", "frontend=f"], plugin=["all"])
+            files = {a.path: a.content.decode() for a in plan.actions if a.content is not None}
+            for tool in ("runner", "builder", "deployer"):
+                for p in ("backend-msa", "frontend"):
+                    for ext in ("sh", "ps1"):
+                        self.assertNotIn("{{", files[f"tools/{tool}/{p}/{tool}.{ext}"])
+                self.assertIn("`u`", files[f"tools/{tool}/GUIDE.md"])
+            self.assertIn("build_proto", files["tools/builder/backend-msa/builder.sh"])
+            self.assertNotIn("build_proto", files["tools/builder/frontend/builder.sh"])
+            self.assertIn("Invoke-BuildProto", files["tools/builder/backend-msa/builder.ps1"])
+            self.assertIn("DEPLOY_TARGETS", files["Makefile"])
+            self.assertIn('-match "^(.+)-deploy-(development|production)$"', files["make.ps1"])
 
 
 class UpdateTests(unittest.TestCase):

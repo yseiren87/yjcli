@@ -55,6 +55,8 @@ wrappers/layers, or read unrelated platforms.
 
 ## Tooling
 
+{{include:plugin-secrets.md}}
+
 {{plugins}}
 
 ## Skill routing

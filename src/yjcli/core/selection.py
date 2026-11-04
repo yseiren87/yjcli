@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from yjcli.catalog.llms import LLM_BY_ID, LLMS
 from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS
-from yjcli.catalog.plugins import PLUGIN_BY_ID, PLUGINS, resolve_requires
+from yjcli.catalog.plugins import PLUGIN_BY_ID, PLUGINS, missing_requires
 from yjcli.core.names import parse_names
 from yjcli.core.state import RepoState
 
@@ -87,11 +87,9 @@ def from_args(
 
     draft.llms = _pick(llm, [l.id for l in LLMS], "LLM", errors)
     draft.platforms = _pick(platform, [p.id for p in PLATFORMS], "플랫폼", errors)
-    plugins = _pick(plugin, [p.id for p in PLUGINS], "플러그인", errors)
-    if plugins is not None:
-        draft.plugins, added = resolve_requires(plugins)
-        for pid in added:
-            draft.notes.append(f"{pid} 가 필요해 함께 추가했습니다")
+    draft.plugins = _pick(plugin, [p.id for p in PLUGINS], "플러그인", errors)
+    if draft.plugins:
+        errors += [f"{m} (--plugin 에 함께 지정하세요)" for m in missing_requires(draft.plugins)]
 
     for raw in name or []:
         parsed = _split_assignment(raw, "--name", errors)
@@ -150,7 +148,10 @@ def fill_from_manifest(draft: Draft, state: RepoState) -> None:
     if draft.platforms is None:
         draft.platforms = list(state.manifest.platforms)
     if draft.plugins is None:
-        draft.plugins = list(state.manifest.plugins)
+        # Ids from older yjcli versions (e.g. the former "secrets" plugin) are dropped.
+        draft.plugins = [p.id for p in PLUGINS if p.id in state.manifest.plugins]
+        if "secrets" in state.manifest.plugins:
+            draft.notes.append("secrets 는 이제 플러그인이 아니라 항상 생성됩니다 (플러그인 목록에서 제외)")
 
 
 def option_values(draft: Draft, platform: str) -> dict[str, bool]:
@@ -173,7 +174,7 @@ def missing(draft: Draft, state: RepoState) -> list[str]:
     elif not draft.platforms:
         out.append("--platform: 최소 1개를 선택해야 합니다")
     if draft.plugins is None:
-        out.append("--plugin (예: --plugin runner,secrets · --plugin none)")
+        out.append("--plugin (예: --plugin runner,builder · --plugin all · --plugin none)")
     for pid in draft.new_platforms(state):
         if not draft.names.get(pid):
             out.append(f"--name {pid}=<이름들> (새 플랫폼은 서비스 이름이 최소 1개 필요)")
@@ -195,10 +196,7 @@ def validate(draft: Draft, state: RepoState) -> list[str]:
     for pid in draft.options:
         if pid in (draft.platforms or []) and pid not in draft.new_platforms(state):
             draft.notes.append(f"{pid}: 이미 있는 플랫폼이라 옵션은 적용하지 않습니다 (폴더를 직접 만들면 됩니다)")
-    for pid in draft.plugins or []:
-        missing_req = [r for r in PLUGIN_BY_ID[pid].requires if r not in (draft.plugins or [])]
-        if missing_req:
-            errors.append(f"{pid} 플러그인은 {', '.join(missing_req)} 가 필요합니다")
+    errors += missing_requires([p for p in draft.plugins or [] if p in PLUGIN_BY_ID])
     unknown_llm = [l for l in draft.llms or [] if l not in LLM_BY_ID]
     if unknown_llm:
         errors.append(f"알 수 없는 LLM: {', '.join(unknown_llm)}")

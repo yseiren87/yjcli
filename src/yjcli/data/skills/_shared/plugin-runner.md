@@ -1,12 +1,9 @@
 ### Runner (`tools/runner/`)
 
-- Root `make <platform>` starts every service of that platform concurrently;
-  `make <platform> NAME=<service>` starts one. Both call
-  `tools/runner/run.sh <platform> [service]` (`run.bat` / `run.ps1` on Windows).
-- `tools/runner/` and the root `Makefile` / `make.bat` are managed by yjcli and
-  regenerated — do not edit them.
-- Each service declares its repository-owned local command as `RUN_COMMAND` in
-  `tools/secrets/<platform>/<service>/.env.local-dev`. The runner exports that
-  file and executes the declaration; it never infers commands from
-  `package.json`, `pyproject.toml`, `go.mod`, or other manifests.
+- `make <platform> [NAME=<service>]` (`./make.ps1` on Windows) calls
+  `tools/runner/<platform>/runner.sh` / `runner.ps1`.
+- Follow `tools/runner/GUIDE.md` (managed by yjcli — do not edit). The scripts
+  are repository-owned: the skeleton already handles service discovery,
+  `.env.local-dev`, concurrency and Ctrl+C; implement only `run_one` /
+  `Invoke-RunOne`, keeping `.sh` and `.ps1` equivalent.
 - Local runs always use `.env.local-dev` — do not hardcode HOST/PORT in scripts.

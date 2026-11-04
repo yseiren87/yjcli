@@ -2,7 +2,8 @@
 
 The plan is built in two halves and merged:
   * code plan    — platform/service folders, stack files, .env.examples, options
-  * tooling plan — agent wiring (AGENTS.md, CLAUDE.md, skills), plugin files
+  * tooling plan — agent wiring (AGENTS.md, CLAUDE.md, skills), env value files
+                   (tools/secrets/, every service), plugin files
 
 Every tracked file carries a policy:
   managed  yjcli owns it; refreshed on every run (skipped with a warning if the
@@ -28,6 +29,7 @@ from yjcli.core.selection import Draft, option_values
 from yjcli.core.state import RepoState
 
 MERGE = "merge"
+SECRET_ENVS = ("local-dev", "development", "production")
 
 
 class PlanError(ValueError):
@@ -109,16 +111,26 @@ def _context(llms: list[str], platforms: list[str], plugins: list[str], skills: 
         "platform_roots": "\n".join(roots),
         "skill_routes": r.markdown_table(("Path", "Platform skill"), routing_rows(platforms, skills)),
         "plugins": "\n\n".join(fragments)
-        or "No tooling plugins are installed: this repository holds code only. Do not add\n"
-        "run/build/deploy scripts, Makefiles or environment value files unless the user asks.",
+        or "No run/build/deploy tooling is installed: this repository holds code and env\n"
+        "values only. Do not add run/build/deploy scripts or Makefiles unless the user asks.",
         "platforms": " ".join(p.id for p in PLATFORMS if p.id in platforms),
         "env_kinds": _env_kinds(platforms),
+        "has_proto": any(_has_proto(PLATFORM_BY_ID[p]) for p in platforms),
     }
     for plugin in PLUGINS:
         ctx[plugin.id] = plugin.id in plugins
     for p in PLATFORMS:
         ctx["platform_" + p.id.replace("-", "_")] = p.id in platforms
     return ctx
+
+
+def _has_proto(platform: Platform) -> bool:
+    return any(o.id == "proto" for o in platform.options)
+
+
+def _service_list(services: dict[str, list[str]]) -> str:
+    rows = [f"- `{p}/`: " + ", ".join(f"`{s}`" for s in names) for p, names in services.items() if names]
+    return "\n".join(rows) or "- (none yet)"
 
 
 def _env_kinds(platforms: list[str]) -> str:
@@ -169,21 +181,24 @@ def _layout_block(llms: list[str], platforms: list[str], plugins: list[str]) -> 
         for option in p.options:
             folder = option.creates[0].split("/", 1)[0]
             rows.append((f"`{p.id}/{folder}/`", ("" if option.fixed else "(optional) ") + "gRPC/protobuf contract"))
+    if platforms:
+        rows.append(("`tools/secrets/<platform>/<service>/`",
+                     "Per-service env values (`.env.local-dev`, `.env.<environment>`) — committed in plain text"))
     for plugin in PLUGINS:
         if plugin.id in plugins:
             rows += list(plugin.layout_rows)
     return r.markdown_table(("Path", "Role"), rows)
 
 
-def _gitignore_block(plugins: list[str]) -> str:
-    lines = ["# Managed by yjcli — regenerated on every run."]
-    if "secrets" in plugins:
-        lines += [
-            "# secrets plugin: env values are committed in plain text (private repos only).",
-            "!tools/secrets/",
-            "!tools/secrets/**",
-        ]
-    return "\n".join(lines)
+def _gitignore_block() -> str:
+    return "\n".join([
+        "# Managed by yjcli — regenerated on every run.",
+        "# Env values are committed in plain text (private repos only).",
+        "!tools/secrets/",
+        "!tools/secrets/**",
+        "# Build output (tools/builder).",
+        "/dist/",
+    ])
 
 
 # --------------------------------------------------------------------------- specs
@@ -297,6 +312,7 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
 
     desired = _Desired()
     ctx = _context(llms, platforms, plugins, skills)
+    ctx["service_list"] = _service_list(services)
 
     # ---- code plan: only new services (and options of new platforms) ----
     for pid, names in new_services.items():
@@ -329,41 +345,38 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
                 _render_skill(skill_id, ctx, additions.get(skill_id)), MANAGED
             )
 
+    # ---- env values: every service (seed, created with the service) ----
+    for p in platforms:
+        platform = PLATFORM_BY_ID[p]
+        for s in services[p]:
+            kind = _service_env_kind(platform, s)
+            for env in SECRET_ENVS:
+                text = r.substitute(_read(_templates() / "secrets" / kind / f"env.{env}"), {"__NAME__": s, **platform.env_vars})
+                content = text.encode()
+                desired.files[f"tools/secrets/{p}/{s}/.env.{env}"] = Spec(
+                    content, SEED, introduce=s in new_services.get(p, []), template_hash=sha256(content)
+                )
+
     # ---- plugins ----
     if any(p in plugins for p in MAKEFILE_PLUGINS):
-        for name in ("Makefile", "make.bat"):
+        for name in ("Makefile", "make.ps1"):
             text = r.render(_read(_plugin_data() / "_shared" / name), ctx)
-            if name == "make.bat":
-                text = text.replace("\r\n", "\n").replace("\n", "\r\n")
             desired.files[name] = Spec(text.encode(), MANAGED)
     for pid in plugins:
         plugin = PLUGIN_BY_ID[pid]
         plugin_new = pid not in old_plugins
         for pf in plugin.files:
             if pf.scope == "root":
-                targets = [({}, plugin_new)]
-            elif pf.scope == "platform":
-                targets = [({"platform": p}, plugin_new or p in new_platforms) for p in platforms if services[p]]
+                targets = [({}, ctx, plugin_new)]
             else:
-                targets = []
-                for p in platforms:
-                    platform = PLATFORM_BY_ID[p]
-                    if pf.deployable_only and not platform.deployable:
-                        continue
-                    for s in services[p]:
-                        if pf.deployable_only and platform.variant_for(s):
-                            continue
-                        fresh = plugin_new or s in new_services.get(p, [])
-                        targets.append(({"platform": p, "service": s, "env_kind": _service_env_kind(platform, s)}, fresh))
-            for values, introduce in targets:
-                src = _plugin_data() / pf.template.format(**values)
-                dest = pf.dest.format(**values)
-                if pf.substitute:
-                    platform = PLATFORM_BY_ID[values["platform"]]
-                    content = r.substitute(_read(src), {"__NAME__": values["service"], **platform.env_vars}).encode()
-                else:
-                    content = src.read_bytes()
-                desired.files[dest] = Spec(
+                targets = [
+                    ({"platform": p}, {**ctx, "platform": p, "proto": _has_proto(PLATFORM_BY_ID[p])},
+                     plugin_new or p in new_platforms)
+                    for p in platforms if services[p]
+                ]
+            for values, render_ctx, introduce in targets:
+                content = r.render(_read(_plugin_data() / pf.template), render_ctx).encode()
+                desired.files[pf.dest.format(**values)] = Spec(
                     content, pf.policy, executable=pf.executable, introduce=introduce,
                     template_hash=sha256(content) if pf.policy == SEED else None,
                 )
@@ -419,14 +432,17 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
             if rec and rec.template and spec.template_hash and rec.template != spec.template_hash:
                 plan.notes.append(f"{rel}: 템플릿이 바뀌었습니다 (사용자 파일이라 적용하지 않음)")
             records[rel] = FileRecord(SEED, rec.sha256 if rec else sha256(path.read_bytes()), spec.template_hash)
-        elif spec.introduce:
+        elif spec.introduce or rec is None:
+            # New owner, or a seed this repo never had (added by a newer yjcli).
             plan.actions.append(Action("create", rel, spec.content, spec.executable))
             records[rel] = FileRecord(SEED, sha256(spec.content), spec.template_hash)
+        else:
+            records[rel] = rec  # deleted by the user: remember the opt-out
 
     # AGENTS.md (seed + managed blocks)
     _plan_agents(plan, root, agents_tpl, blocks, old_files, records)
     # .gitignore (merge block)
-    _plan_gitignore(plan, root, _gitignore_block(plugins), records)
+    _plan_gitignore(plan, root, _gitignore_block(), records)
 
     # ---- files yjcli tracked before but no longer wants ----
     for rel, rec in old_files.items():
@@ -440,6 +456,10 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
                 plan.actions.append(Action("delete", rel))
             else:
                 plan.warnings.append(f"! {rel}: 더 이상 관리하지 않지만 사용자가 수정해서 남겨 둡니다")
+        elif rec.template and sha256(path.read_bytes()) == rec.sha256 == rec.template:
+            # Seed still identical to the template yjcli wrote (e.g. an unimplemented
+            # script). Files adopted from the user never match their template hash.
+            plan.actions.append(Action("delete", rel))
         else:
             plan.notes.append(f"{rel}: 사용자 파일이라 남겨 둡니다 (더 이상 yjcli 가 관리하지 않음)")
 
@@ -462,10 +482,8 @@ def build_plan(draft: Draft, state: RepoState, *, version: str, force: bool = Fa
                     if (root / "tools" / "secrets" / pid / s).is_dir():
                         plan.notes.append(f"tools/secrets/{pid}/{s}/: 서비스가 없는 환경 파일이 남아 있습니다")
 
-    for pid in plugins:
-        note = PLUGIN_BY_ID[pid].note
-        if note:
-            plan.warnings.append(f"{pid}: {note}")
+    if any(a.kind == "create" and a.path.startswith("tools/secrets/") for a in plan.actions):
+        plan.warnings.append("tools/secrets/ 는 평문으로 커밋됩니다. private 저장소에서만 사용하세요.")
 
     plan.manifest = Manifest(
         yjcli_version=version,

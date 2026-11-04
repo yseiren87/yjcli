@@ -43,7 +43,6 @@ class Platform:
     service_files: tuple[tuple[str, str], ...] = ()  # (dest, content)
     options: tuple[Option, ...] = ()
     variants: tuple[ServiceVariant, ...] = ()
-    deployable: bool = False  # builder plugin stamps a Dockerfile into each service
 
     def variant_for(self, service: str) -> ServiceVariant | None:
         for variant in self.variants:
@@ -70,7 +69,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_vars={"__PORT__": "8080"},
         service_dirs=_BACKEND_DIRS,
         options=(_PROTO,),
-        deployable=True,
     ),
     Platform(
         id="backend-msa",
@@ -81,7 +79,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_vars={"__PORT__": "8080"},
         service_dirs=_BACKEND_DIRS,
         options=(Option(id="proto", label=_PROTO.label, creates=_PROTO.creates, fixed=True),),
-        deployable=True,
     ),
     Platform(
         id="backend-ssr",
@@ -92,7 +89,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_vars={"__PORT__": "8080"},
         service_dirs=(*_BACKEND_DIRS, "views"),
         options=(_PROTO,),
-        deployable=True,
     ),
     Platform(
         id="frontend",
@@ -103,7 +99,6 @@ PLATFORMS: tuple[Platform, ...] = (
         env_vars={"__PORT__": "5173"},
         service_dirs=("src",),
         stack_template="frontend",
-        deployable=True,
     ),
     Platform(
         id="mobile-app",
@@ -152,7 +147,6 @@ PLATFORMS: tuple[Platform, ...] = (
         skills=("yj-scheduler",),
         env_kind="worker",
         service_dirs=_BACKEND_DIRS,
-        deployable=True,
     ),
 )
 

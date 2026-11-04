@@ -33,11 +33,14 @@ class Item:
 # Called after a toggle with (current selection, toggled value, now_checked);
 # returns (new selection, message to show or None).
 OnToggle = Callable[[list[str], str, bool], tuple[list[str], str | None]]
+# Called with the current selection; returns {value: reason it is disabled, or None}.
+DisabledFor = Callable[[list[str]], dict[str, str | None]]
 
 
 class Prompter(Protocol):
     def checkbox(self, message: str, items: list[Item], *, minimum: int = 0,
-                 on_toggle: OnToggle | None = None, instruction: str | None = None) -> Any: ...
+                 on_toggle: OnToggle | None = None, disabled_for: DisabledFor | None = None,
+                 instruction: str | None = None) -> Any: ...
 
     def text(self, message: str, *, default: str = "",
              validate: Callable[[str], str | None] | None = None) -> Any: ...
@@ -63,7 +66,7 @@ def _attach(question: questionary.Question, kb: KeyBindings) -> questionary.Ques
 
 
 class QuestionaryPrompter:
-    def checkbox(self, message, items, *, minimum=0, on_toggle=None, instruction=None):
+    def checkbox(self, message, items, *, minimum=0, on_toggle=None, disabled_for=None, instruction=None):
         choices = [
             questionary.Choice(title=i.title, value=i.value, checked=i.checked, disabled=i.disabled)
             for i in items
@@ -98,7 +101,18 @@ class QuestionaryPrompter:
                     current.remove(value)
                 updated, msg = on_toggle(current, value, now)
                 control.selected_options = updated
+                if disabled_for is not None:
+                    reasons = disabled_for(updated)
+                    for choice in control.choices:
+                        if choice.value in reasons:
+                            choice.disabled = reasons[choice.value]
                 control.error_message = FormattedText([("class:validation-toolbar", msg)]) if msg else None
+
+            # Select-all / invert would bypass the dependency rules above.
+            @kb.add("a", eager=True)
+            @kb.add("i", eager=True)
+            def _(event):
+                pass
 
         answer = _attach(question, kb).ask()
         if answer is None:

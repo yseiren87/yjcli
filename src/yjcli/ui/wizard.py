@@ -13,7 +13,7 @@ from rich.console import Console
 
 from yjcli.catalog.llms import LLMS
 from yjcli.catalog.platforms import PLATFORM_BY_ID, PLATFORMS
-from yjcli.catalog.plugins import PLUGINS, drop_dependents, resolve_requires
+from yjcli.catalog.plugins import PLUGINS, disabled_reasons, drop_dependents
 from yjcli.core.names import parse_names
 from yjcli.core.planner import Plan
 from yjcli.core.selection import Draft, validate
@@ -55,11 +55,9 @@ def _header(console: Console, draft: Draft, state: RepoState, current: int, sub:
 
 def _plugin_toggle(current: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
     if now:
-        updated, added = resolve_requires(current)
-        msg = f"{value} 는 {', '.join(added)} 가 필요해 함께 선택했습니다" if added else None
-    else:
-        updated, dropped = drop_dependents(current)
-        msg = f"{value} 가 없으면 {', '.join(dropped)} 를 쓸 수 없어 함께 해제했습니다" if dropped else None
+        return [p.id for p in PLUGINS if p.id in current], None
+    updated, dropped = drop_dependents(current)
+    msg = f"{value} 가 없으면 {', '.join(dropped)} 를 쓸 수 없어 함께 해제했습니다" if dropped else None
     return updated, msg
 
 
@@ -134,24 +132,25 @@ def run_wizard(
                 selected = {p.id for p in PLUGINS if p.default}
             else:
                 selected = set(draft.plugins)
+            selected, _ = drop_dependents(list(selected))
+            reasons = disabled_reasons(selected)
             items = [
                 Item(
                     p.id,
-                    f"{p.id:<9} {p.label:<28} {p.location}"
-                    + (f"  ({', '.join(p.requires)} 필요)" if p.requires else ""),
+                    f"{p.id:<9} {p.label:<30} {p.location}",
                     p.id in selected,
+                    disabled=reasons[p.id],
                 )
                 for p in PLUGINS
             ]
             answer = prompter.checkbox("플러그인을 선택하세요", items, on_toggle=_plugin_toggle,
+                                       disabled_for=disabled_reasons,
                                        instruction="(space: 선택/해제, enter: 다음, ←: 이전)")
             if answer is BACK:
                 direction = -1
                 step -= 1
                 continue
-            draft.plugins, added = resolve_requires(answer)
-            for pid in added:
-                draft.notes.append(f"{pid} 가 필요해 함께 추가했습니다")
+            draft.plugins = [p.id for p in PLUGINS if p.id in answer]
         elif step == 3:
             result = _names_step(draft, state, prompter, console, start=name_index)
             name_index = None

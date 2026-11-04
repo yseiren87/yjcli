@@ -132,10 +132,30 @@ class Case:
                  for l in manifest.read_text().splitlines()]
         manifest.write_text("\n".join(lines) + "\n")
 
-    def set_run_command(self, platform: str, service: str, command: str) -> None:
-        f = self.dir / "tools" / "secrets" / platform / service / ".env.local-dev"
-        lines = [l for l in f.read_text().splitlines() if not l.startswith("RUN_COMMAND=")]
-        f.write_text("\n".join(lines + [f'RUN_COMMAND="{command}"']) + "\n")
+    def pwsh(self, *args: str, expect: int | None = 0) -> Result:
+        cmd = ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "make.ps1", *args]
+        return self._run(cmd, expect, cwd=self.dir, label="make.ps1 " + " ".join(args))
+
+    def implement_ps1(self, script: str, function: str, body: str) -> None:
+        """Replace the stub body of `function` in a generated .ps1 skeleton."""
+        import re
+
+        f = self.dir / script
+        text, n = re.subn(r"^function %s(\([^)]*\))? *\{\n.*?^\}" % re.escape(function),
+                          lambda m: f"function {function}{m.group(1) or ''} {{\n{body}\n}}", f.read_text(),
+                          count=1, flags=re.S | re.M)
+        self.check(n == 1, f"{script}: function {function} not found")
+        f.write_text(text)
+
+    def implement(self, script: str, function: str, body: str) -> None:
+        """Replace the stub body of `function` in a generated .sh skeleton."""
+        import re
+
+        f = self.dir / script
+        text, n = re.subn(r"^%s\(\) \{\n.*?^\}" % re.escape(function),
+                          lambda _: f"{function}() {{\n{body}\n}}", f.read_text(), count=1, flags=re.S | re.M)
+        self.check(n == 1, f"{script}: function {function} not found")
+        f.write_text(text)
 
 
 def no_changes(c: Case, r: Result) -> None:
@@ -147,53 +167,69 @@ def no_changes(c: Case, r: Result) -> None:
 # =============================================================================
 
 
-@case("01-code-only", "플러그인 없이 코드만 생성")
+@case("01-code-only", "플러그인 없이: 코드 + 환경 값(tools/secrets)만 생성")
 def _(c: Case):
-    c.yjcli("-l", "claude", "-n", "backend=a1,a2", "--plugin", "none", "-y")
+    r = c.yjcli("-l", "claude", "-n", "backend=a1,a2", "--plugin", "none", "-y")
+    c.output_has(r, "평문으로 커밋")
     c.exists("backend/a1/apps", "backend/a1/services", "backend/a1/domains", "backend/a1/modules",
              "backend/a1/.env.examples", "backend/a2/.env.examples",
+             "tools/secrets/backend/a1/.env.local-dev", "tools/secrets/backend/a2/.env.production",
              "AGENTS.md", "CLAUDE.md", ".gitignore", ".yjcli/manifest.toml", ".claude/settings.json",
              ".claude/skills/yj-arch-core/SKILL.md", ".claude/skills/yj-backend/SKILL.md")
-    c.absent("tools", "Makefile", "make.bat", "backend/scripts", "backend/a1/Dockerfile",
-             "backend/a1/.env.local-dev", "backend/proto", ".cursor", ".agents", "Diff.md", "TOOLS.md")
+    c.absent("tools/runner", "tools/builder", "tools/deployer", "Makefile", "make.ps1", "make.bat",
+             "backend/scripts", "backend/a1/Dockerfile", "backend/a1/.env.local-dev", "backend/proto",
+             ".cursor", ".agents", "Diff.md", "TOOLS.md")
     c.check((c.dir / "CLAUDE.md").read_text() == "@AGENTS.md\n", "CLAUDE.md should only import AGENTS.md")
-    c.contains(".claude/skills/yj-arch-core/SKILL.md", "this repository holds code only")
-    c.lacks(".claude/skills/yj-arch-core/SKILL.md", "tools/runner", "tools/secrets", "tools/builder")
-    c.contains("AGENTS.md", "| `backend/**` | `yj-backend` |", "<!-- yjcli:layout -->")
-    c.lacks("AGENTS.md", "Makefile", "tools/", "Diff.md", "TOOLS.md", "frontend")
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "holds code and env", "### Secrets")
+    c.lacks(".claude/skills/yj-arch-core/SKILL.md", "tools/runner", "tools/builder", "tools/deployer")
+    c.contains("AGENTS.md", "| `backend/**` | `yj-backend` |", "<!-- yjcli:layout -->", "`tools/secrets/<platform>/<service>/`")
+    c.lacks("AGENTS.md", "Makefile", "tools/runner", "Diff.md", "TOOLS.md", "frontend")
     c.contains(".yjcli/manifest.toml", 'plugins = []', 'services = ["a1", "a2"]')
+    c.contains(".gitignore", "!tools/secrets/**", "/dist/")
 
 
-@case("02-runner-secrets", "runner 선택 → secrets 자동 추가, make 실행")
+@case("02-runner", "runner: 플랫폼별 runner.sh/ps1 + GUIDE, make 로 동시 실행")
 def _(c: Case):
-    r = c.yjcli("-l", "cursor,claude", "-n", "backend=a1 a2", "-n", "frontend=f1", "--plugin", "runner", "-y")
-    c.output_has(r, "secrets 가 필요해 함께 추가했습니다", "평문으로 커밋")
-    c.exists("Makefile", "make.bat", "tools/runner/run.sh", "tools/runner/run.bat", "tools/runner/run.ps1",
+    c.yjcli("-l", "cursor,claude", "-n", "backend=a1 a2", "-n", "frontend=f1", "--plugin", "runner", "-y")
+    c.exists("Makefile", "make.ps1", "tools/runner/GUIDE.md",
+             "tools/runner/backend/runner.sh", "tools/runner/backend/runner.ps1",
+             "tools/runner/frontend/runner.sh", "tools/runner/frontend/runner.ps1",
              "tools/secrets/backend/a1/.env.local-dev", "tools/secrets/backend/a1/.env.development",
              "tools/secrets/backend/a1/.env.production", "tools/secrets/frontend/f1/.env.local-dev",
              "frontend/f1/package.json", "frontend/f1/vite.config.ts", "frontend/f1/src",
              ".cursor/skills/yj-frontend/SKILL.md", ".claude/skills/yj-frontend/SKILL.md")
-    c.absent("tools/builder", "backend/a1/Dockerfile", "backend/a1/.env.local-dev", "backend/scripts")
-    c.executable("tools/runner/run.sh")
-    c.contains("tools/secrets/backend/a1/.env.local-dev", "NAME=a1", "PORT=8080", "RUN_COMMAND=")
+    c.absent("tools/builder", "tools/deployer", "make.bat", "tools/runner/run.sh", "tools/runner/run.bat",
+             "backend/a1/Dockerfile", "backend/a1/.env.local-dev", "backend/scripts")
+    c.executable("tools/runner/backend/runner.sh", "tools/runner/frontend/runner.sh")
+    c.contains("tools/secrets/backend/a1/.env.local-dev", "NAME=a1", "PORT=8080")
+    c.lacks("tools/secrets/backend/a1/.env.local-dev", "RUN_COMMAND")
     c.contains("tools/secrets/frontend/f1/.env.local-dev", "NAME=f1", "PORT=5173")
     c.contains("frontend/f1/package.json", '"name": "f1"')
-    c.contains("Makefile", "PLATFORMS := backend frontend", "tools/runner/run.sh")
-    c.lacks("Makefile", "build-development", "{{")
-    c.contains("make.bat", "tools\\runner\\run.bat")
-    c.check(b"\r\n" in (c.dir / "make.bat").read_bytes(), "make.bat should use CRLF")
+    c.contains("Makefile", "PLATFORMS := backend frontend", 'tools/runner/$@/runner.sh')
+    c.lacks("Makefile", "-build-", "-deploy-", "{{")
+    c.contains("make.ps1", '$Platforms = "backend frontend"', '$tool = "runner"')
+    c.lacks("make.ps1", "-build-", "{{")
+    c.contains("tools/runner/GUIDE.md", "- `backend/`: `a1`, `a2`", "Ctrl+C", "More than one script")
+    c.contains("tools/runner/backend/runner.sh", "read tools/runner/GUIDE.md", "helper scripts")
     c.contains("AGENTS.md", "`tools/runner/`", "`tools/secrets/<platform>/<service>/`", "`.cursor/skills/` (Cursor)")
     c.contains(".claude/skills/yj-arch-core/SKILL.md", "### Runner", "### Secrets", "`listen`: `backend` (PORT 8080), `frontend` (PORT 5173)")
-    c.lacks(".claude/skills/yj-arch-core/SKILL.md", "### Builder")
+    c.lacks(".claude/skills/yj-arch-core/SKILL.md", "### Builder", "### Deployer")
 
-    c.set_run_command("backend", "a1", "echo hello-$NAME-$PORT")
-    c.set_run_command("backend", "a2", "echo hello-$NAME")
+    r = c.sh("make frontend NAME=f1", expect=None)
+    c.check(r.code != 0 and "not implemented — read tools/runner/GUIDE.md" in r.out, "unimplemented runner should fail with a hint")
+    c.implement("tools/runner/backend/runner.sh", "run_one", '  echo "hello-$NAME-${PORT:-none}"')
     one = c.sh("make backend NAME=a1")
-    c.output_has(one, "hello-a1-8080")
+    c.output_has(one, "[a1] hello-a1-8080", "running 1 service(s)")
     both = c.sh("make backend")
-    c.output_has(both, "hello-a1-8080", "hello-a2", "starting 2 service(s)")
-    unset = c.sh("make frontend NAME=f1", expect=None)
-    c.check(unset.code != 0 and "RUN_COMMAND is unset" in unset.out, "empty RUN_COMMAND should fail with a hint")
+    c.output_has(both, "[a1] hello-a1-8080", "[a2] hello-a2-8080", "running 2 service(s)")
+    c.implement("tools/runner/backend/runner.sh", "run_one",
+                '  if [ "$1" = a2 ]; then exit 3; fi\n  exec sleep 30')
+    fail = c.sh("make backend", expect=None)
+    c.check(fail.code != 0 and "[a2] exited with 3" in fail.out, "a failing service should stop the run with its code")
+    (c.dir / "tools/secrets/backend/a2/.env.local-dev").unlink()
+    c.implement("tools/runner/backend/runner.sh", "run_one", '  echo "ran $1"')
+    skip = c.sh("make backend")
+    c.output_has(skip, "[a2] skipped", "[a1] ran a1")
 
     c.sh("git init -q . && touch backend/a1/.env.local-dev")
     c.sh("git check-ignore -q tools/secrets/backend/a1/.env.local-dev", expect=1)  # tracked
@@ -201,43 +237,67 @@ def _(c: Case):
     c.sh("git check-ignore -q backend/a1/.env.examples", expect=1)
 
 
-@case("03-builder", "builder: 배포 가능한 플랫폼에만 Dockerfile, 빌드 스텝 실행")
+@case("03-builder-deployer", "builder/deployer: 플랫폼별 스크립트, dist/<platform>/<service>, 배포는 dist 만 사용")
 def _(c: Case):
     c.yjcli("-l", "codex", "-n", "backend=a1", "-n", "frontend=f1", "-n", "cli=tool", "-n", "scheduler=jobs",
             "--plugin", "all", "-y")
-    c.exists("backend/a1/Dockerfile", "backend/a1/.dockerignore", "frontend/f1/Dockerfile", "scheduler/jobs/Dockerfile",
-             "tools/builder/build-common.sh", "tools/builder/deploy-common.sh",
-             "tools/builder/steps/proto.sh", "tools/builder/steps/ssr.sh", "tools/builder/steps/docker.sh",
-             ".agents/skills/yj-cli/SKILL.md", ".agents/skills/yj-scheduler/SKILL.md")
-    c.absent("cli/tool/Dockerfile", ".claude", ".cursor", "CLAUDE.md")
     for p in ("backend", "frontend", "cli", "scheduler"):
-        for f in ("build-development", "build-production", "deploy-development", "deploy-production"):
-            c.executable(f"tools/builder/{p}/{f}.sh")
-    c.executable("tools/builder/build-common.sh", "tools/builder/steps/docker.sh")
-    c.contains("Makefile", "BUILD_DEVELOPMENT_TARGETS", "tools/builder/$*/build-development.sh", "tools/runner/run.sh")
-    c.contains(".agents/skills/yj-arch-core/SKILL.md", "### Builder", "steps/docker.sh")
+        for tool in ("runner", "builder", "deployer"):
+            c.exists(f"tools/{tool}/{p}/{tool}.ps1")
+            c.executable(f"tools/{tool}/{p}/{tool}.sh")
+    c.exists("tools/builder/GUIDE.md", "tools/deployer/GUIDE.md",
+             ".agents/skills/yj-cli/SKILL.md", ".agents/skills/yj-scheduler/SKILL.md")
+    c.absent("backend/a1/Dockerfile", "backend/a1/.dockerignore", "frontend/f1/Dockerfile", "tools/builder/steps",
+             "tools/builder/build-common.sh", ".claude", ".cursor", "CLAUDE.md")
+    c.contains("tools/builder/backend/builder.sh", "build_proto")  # backend may opt into proto/
+    c.lacks("tools/builder/frontend/builder.sh", "build_proto")
+    c.contains("Makefile", "BUILD_TARGETS", "DEPLOY_TARGETS", "tools/builder/$$p/builder.sh", "tools/deployer/$$p/deployer.sh")
+    c.contains(".agents/skills/yj-arch-core/SKILL.md", "### Builder", "### Deployer", "--env-file")
+    c.contains("tools/deployer/GUIDE.md", "--env-file", "never builds", "More than one script")
+    c.contains("tools/builder/GUIDE.md", "dist/<platform>/<service>/", "BUILD_INFO")
+
     r = c.sh("make backend-build-development NAME=a1", expect=None)
-    c.check(r.code != 0, "unimplemented build should fail")
-    c.output_has(r, "[build] platform: backend", "[build] docker: a1", "development build is not implemented",
-                 "could not resolve a version")  # backend has no package.json / VERSION
-    r = c.sh("make frontend-build-development NAME=f1", expect=None)
-    c.output_has(r, "env=" + str(c.dir.resolve() / "tools/secrets/frontend/f1/.env.development"), "version=0.1.0")
-    r = c.sh("make cli-build-production", expect=None)
-    c.check(r.code != 0 and "[build] docker" not in r.out, "cli has no Dockerfile → no docker step output")
+    c.check(r.code != 0 and "builder for backend/a1 is not implemented" in r.out, "unimplemented build should fail")
+    c.absent("dist/backend/a1")  # failed build leaves no output
     r = c.sh("make backend-deploy-development NAME=a1", expect=None)
-    c.output_has(r, "[build] docker: a1")
+    c.check(r.code != 0 and "run: make backend-build-development NAME=a1" in r.out, "deploy without dist should fail with a hint")
+    r = c.sh("make backend-build-staging", expect=None)
+    c.check(r.code != 0, "unknown environment target should fail")
+
+    c.implement("tools/builder/backend/builder.sh", "build_one", '  echo "built $1 for $ENVIRONMENT" > "$OUT/app"')
+    c.implement("tools/builder/frontend/builder.sh", "build_one", '  echo ok > "$OUT/index.html"')
+    c.implement("tools/deployer/backend/deployer.sh", "deploy_one", '  echo "shipping $(cat app) env=$ENV_FILE"')
+    c.sh("make backend-build-development")
+    c.contains("dist/backend/a1/app", "built a1 for development")
+    c.contains("dist/backend/a1/BUILD_INFO", "platform=backend", "service=a1", "environment=development", "version=unknown")
+    (c.dir / "dist/backend/a1/stale").write_text("x")
+    c.sh("make backend-build-development NAME=a1")
+    c.absent("dist/backend/a1/stale")  # emptied before each build
+    c.sh("make frontend-build-production")
+    c.contains("dist/frontend/f1/BUILD_INFO", "version=0.1.0", "environment=production")
+    r = c.sh("make backend-deploy-development NAME=a1")
+    c.output_has(r, "shipping built a1 for development env=" + str(c.dir.resolve() / "tools/secrets/backend/a1/.env.development"))
+    r = c.sh("make backend-deploy-production")
+    c.output_has(r, "warning: dist/backend/a1 was built for development, deploying to production")
+    c.sh("git init -q . && git check-ignore -q dist/backend/a1/app", expect=0)
 
 
-@case("04-builder-without-runner", "builder 만 선택: Makefile 은 빌드 타깃만")
+@case("04-plugin-dependencies", "deployer 는 builder 필요 · builder 만 선택 시 빌드 타깃만")
 def _(c: Case):
-    r = c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "builder", "-y")
-    c.output_has(r, "secrets 가 필요해 함께 추가했습니다")
-    c.exists("Makefile", "tools/builder", "tools/secrets/backend/a1/.env.production")
-    c.absent("tools/runner")
-    c.lacks("Makefile", "tools/runner")
-    c.contains("Makefile", "build-development")
+    r = c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner,deployer", "-y", expect=1)
+    c.output_has(r, "deployer 는 builder 가 필요합니다")
+    c.check(not c.dir.exists() or not any(c.dir.iterdir()), "nothing should be written")
+    c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "builder", "-y")
+    c.exists("Makefile", "make.ps1", "tools/builder/backend/builder.sh", "tools/secrets/backend/a1/.env.production")
+    c.absent("tools/runner", "tools/deployer")
+    c.lacks("Makefile", "tools/runner", "DEPLOY_TARGETS")
+    c.contains("Makefile", "BUILD_TARGETS")
     r = c.sh("make backend NAME=a1", expect=None)
-    c.check("tools/runner" not in r.out and "[a1]" not in r.out, "runner target must not exist without runner")
+    c.check("[a1]" not in r.out and "Nothing to be done" in r.out, "runner target must not exist without runner")
+    r = c.yjcli("--plugin", "deployer", "-y", expect=1)
+    c.output_has(r, "deployer 는 builder 가 필요합니다")
+    c.yjcli("--plugin", "builder,deployer", "-y")
+    c.exists("tools/deployer/backend/deployer.sh", "tools/deployer/GUIDE.md")
 
 
 @case("05-backend-variants", "backend / backend-msa(proto 고정) / backend-ssr(views) / proto 옵션")
@@ -263,7 +323,7 @@ def _(c: Case):
 
 @case("06-browser-extension", "browser-extension: native_* 는 백엔드 구조 + yj-backend")
 def _(c: Case):
-    c.yjcli("-l", "claude", "-n", "browser-extension=ext native_host", "--plugin", "secrets", "-y")
+    c.yjcli("-l", "claude", "-n", "browser-extension=ext native_host", "--plugin", "none", "-y")
     c.exists("browser-extension/ext/manifest.json", "browser-extension/ext/src/background",
              "browser-extension/native_host/apps", "browser-extension/native_host/.env.examples",
              ".claude/skills/yj-browser-extension/SKILL.md", ".claude/skills/yj-backend/SKILL.md",
@@ -295,6 +355,8 @@ def _(c: Case):
         c.check("backend-service" not in text, f"{rel}: mentions removed platform backend-service")
         c.check("plugin-build" not in text, f"{rel}: mentions old plugin-build-* script")
         c.check("Diff.md" not in text and "TOOLS.md" not in text, f"{rel}: mentions removed Diff.md/TOOLS.md")
+        for old in ("RUN_COMMAND", "make.bat", "build-common", "steps/docker", "--build-arg \"$key"):
+            c.check(old not in text, f"{rel}: mentions removed {old}")
     for p in ("backend", "backend-msa", "backend-ssr", "frontend", "mobile-app", "pc-app", "cli", "browser-extension", "scheduler"):
         c.absent(f"{p}/scripts")
     for skill in ("yj-backend", "yj-frontend", "yj-cli", "yj-scheduler", "yj-mobile-app", "yj-pc-app",
@@ -309,19 +371,19 @@ def _(c: Case):
     no_changes(c, c.yjcli("-l", "claude,cursor", "--plugin", "all", "-y"))
 
 
-@case("09-service-add", "서비스 추가: 새 서비스만 생성, 사용자 파일 보존")
+@case("09-service-add", "서비스 추가: 새 서비스만 생성, 사용자 파일 보존, GUIDE 갱신")
 def _(c: Case):
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "all", "-y")
-    (c.dir / "tools/secrets/backend/a1/.env.local-dev").write_text("RUN_COMMAND=\"mine\"\n")
+    (c.dir / "tools/secrets/backend/a1/.env.local-dev").write_text("NAME=mine\n")
     (c.dir / "backend/a1/.env.examples").write_text("# mine\nX=\n")
-    (c.dir / "backend/a1/Dockerfile").unlink()  # opt a1 out of docker
+    c.implement("tools/builder/backend/builder.sh", "build_one", "  : mine")
     r = c.yjcli("service", "add", "-n", "backend=a3,a4", "-y")
     c.output_has(r, "backend/a3 (+)", "backend/a4 (+)")
-    c.exists("backend/a3/apps", "backend/a4/.env.examples", "tools/secrets/backend/a3/.env.local-dev",
-             "backend/a3/Dockerfile")
-    c.contains("tools/secrets/backend/a1/.env.local-dev", 'RUN_COMMAND="mine"')
+    c.exists("backend/a3/apps", "backend/a4/.env.examples", "tools/secrets/backend/a3/.env.local-dev")
+    c.contains("tools/secrets/backend/a1/.env.local-dev", "NAME=mine")
     c.contains("backend/a1/.env.examples", "# mine")
-    c.absent("backend/a1/Dockerfile")
+    c.contains("tools/builder/backend/builder.sh", ": mine")
+    c.contains("tools/builder/GUIDE.md", "- `backend/`: `a1`, `a3`, `a4`")
     c.contains(".yjcli/manifest.toml", 'services = ["a1", "a3", "a4"]')
     r = c.yjcli("service", "add", "-n", "backend=a3", "-y", expect=1)
     c.output_has(r, "이미 있는 서비스")
@@ -329,42 +391,40 @@ def _(c: Case):
     c.output_has(r, "구성되지 않은 플랫폼")
 
 
-@case("10-plugin-add-remove", "플러그인 추가/제거: 관리 파일만 삭제, 사용자 파일은 남김")
+@case("10-plugin-add-remove", "플러그인 추가/제거: 안 건드린 파일은 삭제, 구현한 스크립트는 남김")
 def _(c: Case):
     c.yjcli("-l", "claude", "-n", "backend=a1", "-n", "cli=t", "--plugin", "runner", "-y")
-    c.absent("backend/a1/Dockerfile")
-    r = c.yjcli("--plugin", "runner,builder", "-y")
-    c.exists("backend/a1/Dockerfile", "tools/builder/backend/build-development.sh", "tools/builder/cli/build-development.sh")
-    c.absent("cli/t/Dockerfile")
+    c.yjcli("--plugin", "runner,builder", "-y")
+    c.exists("tools/builder/backend/builder.sh", "tools/builder/cli/builder.ps1", "tools/builder/GUIDE.md")
     c.contains(".claude/skills/yj-arch-core/SKILL.md", "### Builder")
     c.contains("AGENTS.md", "`tools/builder/`")
+    c.implement("tools/runner/backend/runner.sh", "run_one", "  exec mine")
     r = c.yjcli("--plugin", "builder", "-y")
-    c.output_has(r, "- 삭제")
-    c.absent("tools/runner")
-    c.exists("tools/secrets/backend/a1/.env.local-dev", "tools/builder/build-common.sh", "Makefile")
+    c.output_has(r, "- 삭제", "tools/runner/backend/runner.sh: 사용자 파일이라 남겨 둡니다")
+    c.absent("tools/runner/GUIDE.md", "tools/runner/cli", "tools/runner/backend/runner.ps1")
+    c.exists("tools/runner/backend/runner.sh", "tools/secrets/backend/a1/.env.local-dev", "Makefile")
     c.lacks("Makefile", "tools/runner")
     c.lacks("AGENTS.md", "`tools/runner/`")
     c.lacks(".claude/skills/yj-arch-core/SKILL.md", "### Runner")
-    r = c.yjcli("--plugin", "none", "-y")
-    c.absent("Makefile", "make.bat", "tools/builder/build-common.sh", "tools/builder/steps")
-    c.exists("tools/secrets/backend/a1/.env.local-dev", "tools/builder/backend/build-development.sh", "backend/a1/Dockerfile")
-    c.output_has(r, "사용자 파일이라 남겨 둡니다")
-    c.contains(".claude/skills/yj-arch-core/SKILL.md", "this repository holds code only")
-    c.lacks(".gitignore", "!tools/secrets/")
+    c.yjcli("--plugin", "none", "-y")
+    c.absent("Makefile", "make.ps1", "tools/builder")
+    c.exists("tools/secrets/backend/a1/.env.local-dev", "tools/runner/backend/runner.sh")
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "holds code and env")
+    c.contains(".gitignore", "!tools/secrets/")
 
 
-@case("11-modified-managed", "사용자가 고친 관리 파일은 건너뛰고 --force 로만 덮어씀")
+@case("11-modified-managed", "사용자가 고친 관리 파일(GUIDE.md)은 건너뛰고 --force 로만 덮어씀")
 def _(c: Case):
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
-    run_sh = c.dir / "tools/runner/run.sh"
-    run_sh.write_text(run_sh.read_text() + "\n# local tweak\n")
+    guide = c.dir / "tools/runner/GUIDE.md"
+    guide.write_text(guide.read_text() + "\nlocal tweak\n")
     r = c.yjcli("-y")
-    c.output_has(r, "tools/runner/run.sh: 사용자가 수정함")
-    c.contains("tools/runner/run.sh", "# local tweak")
+    c.output_has(r, "tools/runner/GUIDE.md: 사용자가 수정함")
+    c.contains("tools/runner/GUIDE.md", "local tweak")
     st = c.yjcli("status")
-    c.output_has(st, "! tools/runner/run.sh")
+    c.output_has(st, "! tools/runner/GUIDE.md")
     c.yjcli("--force", "-y")
-    c.lacks("tools/runner/run.sh", "# local tweak")
+    c.lacks("tools/runner/GUIDE.md", "local tweak")
     no_changes(c, c.yjcli("-y"))
 
 
@@ -416,7 +476,7 @@ def _(c: Case):
 @case("15-dry-run", "--dry-run / plan: 파일을 만들지 않음")
 def _(c: Case):
     r = c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "all", "--dry-run")
-    c.output_has(r, "+ 생성", "tools/runner/run.sh", "backend/a1/Dockerfile")
+    c.output_has(r, "+ 생성", "tools/runner/backend/runner.sh", "tools/deployer/GUIDE.md")
     c.check(not c.dir.exists() or not any(c.dir.iterdir()), "--dry-run must not write files")
     r = c.yjcli("plan", "-l", "claude", "-n", "backend=a1", "--plugin", "none")
     c.check(not any(c.dir.iterdir()), "plan must not write files")
@@ -455,7 +515,7 @@ keys = [
     " jjj \r",            # 2 platforms: backend + frontend
     LEFT,                 # 3 plugins: ← back to platforms
     "\r",                 # 2 platforms: keep
-    "jj \r",              # 3 plugins: runner,secrets default; toggle builder (secrets already on)
+    "j j k  \r",          # 3 plugins: runner default; builder on → deployer enabled, on; builder off drops deployer; builder on
     "a1, a2\r",           # 4 backend names
     "\r",                 # 4 backend options: proto off
     "\r",                 # 4 frontend names: empty → error, stays
@@ -474,10 +534,10 @@ with create_pipe_input() as inp:
     r = c._run([sys.executable, "-c", code, str(c.dir)], 0, cwd=REPO, label="wizard (scripted keys)")
     c.output_has(r, "완료.")
     c.exists("backend/a1/apps", "backend/a2/apps", "frontend/f1/package.json", ".cursor/skills/yj-backend/SKILL.md",
-             ".claude/skills/yj-frontend/SKILL.md", "tools/runner/run.sh", "tools/builder/build-common.sh",
-             "tools/secrets/frontend/f1/.env.local-dev", "backend/a1/Dockerfile")
-    c.absent("backend/proto")
-    c.contains(".yjcli/manifest.toml", 'llms = ["cursor", "claude"]', 'plugins = ["runner", "secrets", "builder"]')
+             ".claude/skills/yj-frontend/SKILL.md", "tools/runner/backend/runner.sh", "tools/builder/frontend/builder.sh",
+             "tools/secrets/frontend/f1/.env.local-dev")
+    c.absent("backend/proto", "tools/deployer")
+    c.contains(".yjcli/manifest.toml", 'llms = ["cursor", "claude"]', 'plugins = ["runner", "builder"]')
 
 
 @case("18-status-doctor", "status / doctor / 인자 없는 yjcli 는 도움말")
@@ -489,7 +549,7 @@ def _(c: Case):
     c.output_has(r, "구성되지 않은 폴더")
     c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
     r = c.yjcli("status")
-    c.output_has(r, "LLM: claude", "플러그인: runner, secrets", "backend: a1")
+    c.output_has(r, "LLM: claude", "플러그인: runner", "backend: a1")
     r = c._run([sys.executable, "-m", "yjcli", "doctor"], 0, cwd=REPO, label="yjcli doctor")
     c.output_has(r, "templates:", "plugins:", "skills:")
 
@@ -499,7 +559,7 @@ def _(c: Case):
     c.yjcli("-l", "claude,cursor", "-n", "backend=a1", "--plugin", "runner", "-y")
     # an older yjcli wrote different skill/runner content
     c.fake_older_package(".claude/skills/yj-arch-core/SKILL.md", "OLD SKILL\n")
-    c.fake_older_package("tools/runner/run.sh", "#!/usr/bin/env bash\necho old\n")
+    c.fake_older_package("tools/runner/GUIDE.md", "old guide\n")
     # an older AGENTS.md rules block + the user's own edits outside blocks
     agents = c.dir / "AGENTS.md"
     text = agents.read_text()
@@ -513,8 +573,7 @@ def _(c: Case):
     c.contains(".claude/skills/yj-arch-core/SKILL.md", "OLD SKILL")  # dry-run wrote nothing
     c.yjcli("update", "-y")
     c.contains(".claude/skills/yj-arch-core/SKILL.md", "name: yj-arch-core")
-    c.lacks("tools/runner/run.sh", "echo old")
-    c.executable("tools/runner/run.sh")
+    c.lacks("tools/runner/GUIDE.md", "old guide")
     c.contains("AGENTS.md", "- No filler, no repeated explanations.", "- Always write tests first.", "- Name: `shop`")
     c.lacks("AGENTS.md", "OLD RULE")
     no_changes(c, c.yjcli("update", "-y"))
@@ -562,6 +621,77 @@ def _(c: Case):
     c.output_has(st, "yjcli update")
     r = c.yjcli("update", "-y")
     c.output_has(r, "0.0.1 →")
+
+
+@case("22-legacy-plugin-id", "이전 manifest 의 secrets 플러그인 id 는 무시")
+def _(c: Case):
+    c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
+    m = c.dir / ".yjcli/manifest.toml"
+    m.write_text(m.read_text().replace('plugins = ["runner"]', 'plugins = ["runner", "secrets"]'))
+    c.yjcli("update", "-y")
+    c.contains(".yjcli/manifest.toml", 'plugins = ["runner"]')
+
+
+@case("23-new-seed-on-update", "업데이트: 처음 보는 seed 는 생성, 사용자가 지운 seed 는 다시 만들지 않음")
+def _(c: Case):
+    import re
+
+    c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
+    # a repo from an older yjcli that never had this seed: no file, no record
+    (c.dir / "tools/runner/backend/runner.sh").unlink()
+    m = c.dir / ".yjcli/manifest.toml"
+    m.write_text(re.sub(r'^"tools/runner/backend/runner\.sh" = .*\n', "", m.read_text(), flags=re.M))
+    # a seed the user deleted on purpose
+    (c.dir / "tools/runner/backend/runner.ps1").unlink()
+    c.yjcli("update", "-y")
+    c.executable("tools/runner/backend/runner.sh")
+    c.absent("tools/runner/backend/runner.ps1")
+    c.yjcli("update", "-y")
+    c.absent("tools/runner/backend/runner.ps1")
+    c.contains(".yjcli/manifest.toml", '"tools/runner/backend/runner.ps1"')
+
+
+@case("24-powershell", "make.ps1 + .ps1 스켈레톤 (pwsh 가 있을 때만)")
+def _(c: Case):
+    if not shutil.which("pwsh"):
+        c.log.append("pwsh not installed — skipped")
+        return
+    c.yjcli("-l", "claude", "-n", "backend-msa=user,order", "-n", "frontend=web", "--plugin", "all", "-y")
+    r = c.pwsh()
+    c.output_has(r, "make.ps1 <platform>-deploy-<env>", "Platforms: backend-msa frontend")
+    c.pwsh("nope", expect=1)
+    r = c.pwsh("frontend", expect=1)
+    c.output_has(r, "[web] runner for frontend/web is not implemented - read tools/runner/GUIDE.md")
+    r = c.pwsh("frontend-build-development", expect=1)
+    c.output_has(r, "builder for frontend/web is not implemented")
+    c.absent("dist/frontend/web")
+    r = c.pwsh("frontend-deploy-production", "NAME=web", expect=1)
+    c.output_has(r, "run: make.ps1 frontend-build-production NAME=web")
+
+    c.implement_ps1("tools/runner/backend-msa/runner.ps1", "Invoke-RunOne",
+                    '    Write-Output "hello $env:NAME port=$env:PORT"')
+    r = c.pwsh("backend-msa")
+    c.output_has(r, "[order] hello order port=8080", "[user] hello user port=8080", "running 2 service(s)")
+    c.implement_ps1("tools/runner/backend-msa/runner.ps1", "Invoke-RunOne",
+                    '    if ($Name -eq "order") { exit 3 }\n    Start-Sleep 30')
+    r = c.pwsh("backend-msa", expect=3)
+    c.output_has(r, "[order] exited with 3")
+
+    c.implement_ps1("tools/builder/backend-msa/builder.ps1", "Invoke-BuildProto", '    Write-Host "protoc ok"')
+    c.implement_ps1("tools/builder/backend-msa/builder.ps1", "Invoke-BuildOne",
+                    '    Set-Content -Path (Join-Path $Out "app") -Value "built $Name for $Environment"')
+    c.implement_ps1("tools/deployer/backend-msa/deployer.ps1", "Invoke-DeployOne",
+                    '    Write-Host "shipping $(Get-Content app)"')
+    r = c.pwsh("backend-msa-build-development")
+    c.output_has(r, "protoc ok", "[build] done: order user")
+    c.contains("dist/backend-msa/user/BUILD_INFO", "platform=backend-msa", "environment=development")
+    r = c.pwsh("backend-msa-deploy-production", "NAME=user")
+    c.output_has(r, "was built for development, deploying to production", "shipping built user for development")
+    c.implement_ps1("tools/builder/backend-msa/builder.ps1", "Invoke-BuildOne",
+                    '    Set-Content -Path (Join-Path $Out "half") -Value x\n    exit 4')
+    c.pwsh("backend-msa-build-production", "NAME=order", expect=4)
+    c.absent("dist/backend-msa/order")
+    c.exists("dist/backend-msa/user/BUILD_INFO")
 
 
 # =============================================================================

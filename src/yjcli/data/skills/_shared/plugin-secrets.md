@@ -9,6 +9,7 @@
 - These files are **committed in plain text** — the repository must stay
   private. Do not copy their values into code, docs, logs or commit messages.
 - Value files list populated `FIELD=value` lines consecutively, without
-  field-description comments or separator blank lines.
+  field-description comments or separator blank lines. Values are literal: no
+  quotes, no `export`, no multi-line values (the `docker --env-file` format).
 - When adding a field, add it to the service's `.env.examples` and to every
   `.env.<environment>` file of that service.

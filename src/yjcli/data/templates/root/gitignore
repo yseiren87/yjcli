@@ -30,8 +30,8 @@ Desktop.ini
 .history/
 
 # ----- Environment (services commit .env.examples only) -----
-# Env values live in tools/secrets/ when the secrets plugin is installed; the
-# yjcli block below re-includes that folder.
+# Env values live in tools/secrets/<platform>/<service>/; the yjcli block below
+# re-includes that folder.
 .env
 .env.*
 !.env.examples

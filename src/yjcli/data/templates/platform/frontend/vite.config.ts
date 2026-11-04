@@ -3,9 +3,8 @@ import { basename, resolve } from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Env values (yj-arch-core): this app keeps only .env.examples. When the secrets
-// tooling is installed, values live in tools/secrets/frontend/<app>/.env.<mode>;
-// tools/runner also exports .env.local-dev into process.env before RUN_COMMAND.
+// Env values (yj-arch-core): this app keeps only .env.examples; values live in
+// tools/secrets/frontend/<app>/.env.<mode> (e.g. vite --mode local-dev).
 // Loaded via Vite --mode (no plain .env).
 const secretsDir = resolve(__dirname, "../../tools/secrets/frontend", basename(__dirname));
 const envDir = existsSync(secretsDir) ? secretsDir : __dirname;
