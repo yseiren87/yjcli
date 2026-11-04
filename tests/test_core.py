@@ -211,6 +211,14 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(is_older("0.3.0", "0.3"))
         self.assertFalse(is_older("0.0.0+local", "1.0.0"))  # unknown dev build never blocks
 
+    def test_repos_before_0_4_are_unsupported(self) -> None:
+        from yjcli.core.manifest import unsupported
+
+        self.assertTrue(unsupported("0.3.4"))
+        self.assertTrue(unsupported("0.2.5"))
+        self.assertFalse(unsupported("0.4.0"))
+        self.assertFalse(unsupported("0.4.1"))
+
 
 class ManifestTests(unittest.TestCase):
     def test_round_trip(self) -> None:

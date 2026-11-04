@@ -148,10 +148,7 @@ def fill_from_manifest(draft: Draft, state: RepoState) -> None:
     if draft.platforms is None:
         draft.platforms = list(state.manifest.platforms)
     if draft.plugins is None:
-        # Ids from older yjcli versions (e.g. the former "secrets" plugin) are dropped.
-        draft.plugins = [p.id for p in PLUGINS if p.id in state.manifest.plugins]
-        if "secrets" in state.manifest.plugins:
-            draft.notes.append("secrets 는 이제 플러그인이 아니라 항상 생성됩니다 (플러그인 목록에서 제외)")
+        draft.plugins = list(state.manifest.plugins)
 
 
 def option_values(draft: Draft, platform: str) -> dict[str, bool]:

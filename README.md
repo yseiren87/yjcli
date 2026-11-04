@@ -135,53 +135,46 @@ yjcli never deletes services or files you own. Removing a plugin or LLM deletes
 its managed files and the seeds you never changed; edited seeds and your own
 skills are left alone.
 
-### Upgrading from 0.3.x
+## Rebuilding a repo made with an older yjcli (0.3.x / 0.2.x)
 
-`uv tool upgrade yjcli && yjcli update --diff`, then confirm. The 0.3 tooling
-(`tools/runner/run.*`, `tools/builder/{build-common,deploy-common}.sh`,
-`tools/builder/steps/`, per-platform `build-*/deploy-*.sh`, service
-`Dockerfile`/`.dockerignore`, `make.bat`) is removed where you never edited it,
-and the new GUIDEs and per-platform scripts are created. Files you edited are
-kept and listed — move that logic into the new `build_one` / `deploy_one`
-functions, then delete them. The old `secrets` plugin id is dropped (env files are
-always created now); remove `RUN_COMMAND` from `.env.local-dev` and put the
-command in `run_one`.
+yjcli 0.4 does not work on repos set up by an earlier version: it stops with a
+message instead of updating them. Remove what the old yjcli generated and set the
+repo up again; service source code stays where it is. Work on a new branch.
 
-## Rebuilding a repo made with yjcli 0.2.x
-
-There is no automatic migration. Remove what 0.2.x generated and set the repo up
-again with the current yjcli; service source code stays where it is. Work on a new branch.
-
-1. **Back up env values.** 0.2.x kept `.env.local-dev` / `.env.development` /
-   `.env.production` inside each service and git does not track them:
-   `find . -name node_modules -prune -o -type f -name '.env.*' ! -name '.env.examples' -print0 | tar --null -czf ~/env-backup.tgz -T -`
-   Also copy `AGENTS.md` aside — you will move your own notes back later.
-2. **Rename platforms** (in this order):
-   `git mv backend backend-msa`, then move each `backend-service/<svc>` to
-   `backend-ssr/<svc>` if it has `views/`, otherwise to `backend/<svc>`.
-3. **Move env values:** every `<platform>/<service>/.env.*` except
-   `.env.examples` → `tools/secrets/<platform>/<service>/`. yjcli never
-   overwrites existing value files, so your real values are kept (drop
-   `RUN_COMMAND`; the command goes into the runner's `run_one`).
-4. **Delete the 0.2.x output:** `*/scripts/`, `Makefile`, `make.bat`, `TOOLS.md`,
-   `Diff.md`, `CLAUDE.md`, `AGENTS.md`, the `yj-*` folders in
-   `.cursor/skills`, `.claude/skills`, `.agents/skills` (keep your own skills),
-   and any `.gitignore` you never edited (it is regenerated). Keep Dockerfiles you
-   want to reuse aside: they now live under `tools/deployer/<platform>/`.
-5. **Apply yjcli** with the platforms that now exist (services are picked up
-   from their folders):
+1. **Save what you will move back:** copy `AGENTS.md` aside (your project notes),
+   and any run/build/deploy logic or Dockerfiles you wrote — 0.3.x:
+   `RUN_COMMAND` lines in `tools/secrets/**/.env.local-dev`,
+   `tools/builder/<platform>/{build,deploy}-*.sh`, service `Dockerfile`s;
+   0.2.x: `<platform>/scripts/`, service `Dockerfile`s.
+2. **0.2.x only — rename platforms and move env values:**
+   - Back up the untracked env files first:
+     `find . -name node_modules -prune -o -type f -name '.env.*' ! -name '.env.examples' -print0 | tar --null -czf ~/env-backup.tgz -T -`
+   - `git mv backend backend-msa`, then move each `backend-service/<svc>` to
+     `backend-ssr/<svc>` if it has `views/`, otherwise to `backend/<svc>`.
+   - Move every `<platform>/<service>/.env.*` except `.env.examples` to
+     `tools/secrets/<platform>/<service>/`.
+3. **Delete the old yjcli output:** `.yjcli/`, `AGENTS.md`, `CLAUDE.md`,
+   `Makefile`, `make.bat`, the `yj-*` folders in `.cursor/skills`,
+   `.claude/skills`, `.agents/skills` (keep your own skills), service
+   `Dockerfile` / `.dockerignore`, `.gitignore` if you never edited it, and
+   — 0.3.x — `tools/runner/`, `tools/builder/`; 0.2.x — `*/scripts/`,
+   `TOOLS.md`, `Diff.md`. **Keep `tools/secrets/`**: yjcli never overwrites
+   existing value files (remove the `RUN_COMMAND` lines from them).
+4. **Set up again** with the platforms that exist (services are picked up from
+   their folders):
    `yjcli start -l claude -p backend-msa,backend,frontend --plugin runner,builder,deployer --dry-run`,
    then the same with `-y`.
-6. **Move your own content back:** project values from the old `AGENTS.md` go
-   outside the `<!-- yjcli:… -->` blocks; build/deploy logic you wrote in
-   `<platform>/scripts/build-*.sh` / `deploy-*.sh` goes into `build_one` in
-   `tools/builder/<platform>/builder.sh` (output to `dist/<platform>/<service>/`)
-   and `deploy_one` in `tools/deployer/<platform>/deployer.sh` (see each
-   `GUIDE.md`); existing frontend apps' `vite.config.ts` should load env from
+5. **Move your content back:** project notes go outside the
+   `<!-- yjcli:… -->` blocks of the new `AGENTS.md`; the run command goes into
+   `run_one` (`tools/runner/<platform>/runner.sh` / `.ps1`); build logic into
+   `build_one` (output to `dist/<platform>/<service>/`); deploy logic into
+   `deploy_one`, with Dockerfiles under `tools/deployer/<platform>/` and env
+   values passed at run time (`--env-file`) — see each `tools/<tool>/GUIDE.md`.
+   Frontend apps' `vite.config.ts` should load env from
    `tools/secrets/frontend/<app>/` (`envDir`).
-7. **Fix old paths** in code, CI and symlinks: `backend/proto` →
-   `backend-msa/proto`, `backend-service/…`, `<platform>/scripts/…`.
-8. **Check:** `yjcli update --dry-run` reports no changes, `make <platform>
+6. **Fix old paths** in code, CI and symlinks (0.2.x: `backend/proto` →
+   `backend-msa/proto`, `backend-service/…`, `<platform>/scripts/…`).
+7. **Check:** `yjcli update --dry-run` reports no changes, `make <platform>
    NAME=<service>` runs once `run_one` is implemented, and `tools/secrets/` is
    tracked by git (private repos only) before you commit.
 
@@ -192,6 +185,7 @@ uv sync
 uv run python -m unittest discover -s tests   # unit tests
 scripts/e2e.sh                                 # end-to-end scenarios into ./sandbox
 scripts/e2e.sh -k wizard -v                    # one case, with output on failure
+scripts/e2e.sh -k fullspec                     # sandbox/24-fullspec: every LLM, platform and plugin
 brew install powershell                        # optional: enables the make.ps1 / .ps1 case
 ```
 

@@ -92,6 +92,12 @@ def run(
         state = read_state(root)
     except ValueError as exc:
         _fail([str(exc)])
+    if state.manifest and manifest_mod.unsupported(state.manifest.yjcli_version):
+        _fail([
+            f"yjcli {state.manifest.yjcli_version} 로 구성된 저장소는 지원하지 않습니다 "
+            f"({manifest_mod.MIN_SUPPORTED} 이상만, 하위 호환 없음).",
+            "이전 산출물을 지우고 다시 구성하세요 — README 'Rebuilding a repo made with an older yjcli'.",
+        ])
     if state.manifest and manifest_mod.is_older(package_version(), state.manifest.yjcli_version) and not force:
         _fail([
             f"설치된 yjcli({package_version()})가 이 저장소를 마지막으로 구성한 버전"
@@ -255,7 +261,9 @@ def status(path: PathOpt = Path(".")) -> None:
         console.print("yjcli 로 구성되지 않은 폴더입니다 (.yjcli/manifest.toml 없음).")
         raise typer.Exit(code=1)
     console.print(f"yjcli {m.yjcli_version} 로 구성됨 (설치된 버전 {package_version()})", markup=False)
-    if manifest_mod.is_older(package_version(), m.yjcli_version):
+    if manifest_mod.unsupported(m.yjcli_version):
+        console.print(f"[yellow]  {manifest_mod.MIN_SUPPORTED} 이전 버전으로 구성된 저장소라 지원하지 않습니다 — 다시 구성하세요 (README)[/yellow]")
+    elif manifest_mod.is_older(package_version(), m.yjcli_version):
         console.print("[yellow]  설치된 yjcli 가 더 낮습니다 — `uv tool upgrade yjcli` 필요[/yellow]")
     elif manifest_mod.version_key(package_version()) != manifest_mod.version_key(m.yjcli_version):
         console.print("  새 버전이 설치되어 있습니다 — `yjcli update` 로 반영하세요", markup=False)

@@ -45,6 +45,16 @@ def is_older(installed: str, recorded: str) -> bool:
     return bool(a) and bool(b) and a < b
 
 
+# Oldest yjcli whose repos this version still updates (no backward compatibility
+# across the 0.4 tooling change: older repos are rebuilt, see README).
+MIN_SUPPORTED = "0.4.0"
+
+
+def unsupported(recorded: str) -> bool:
+    """True when the manifest was written by a yjcli older than MIN_SUPPORTED."""
+    return is_older(recorded, MIN_SUPPORTED)
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

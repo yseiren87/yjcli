@@ -4,9 +4,11 @@ Usage (from the repo root):
     scripts/e2e.sh                 # all cases
     scripts/e2e.sh -k builder      # cases whose name contains "builder"
     scripts/e2e.sh -v              # also print yjcli output of failed cases
+    scripts/e2e.sh -k fullspec     # only regenerate sandbox/24-fullspec (everything selected)
 
 Every case starts from an empty folder under sandbox/ (git-ignored) and is
-left there afterwards so the generated tree can be inspected by hand.
+left there afterwards so the generated tree can be inspected by hand. A full run
+(no -k) also removes sandbox folders that no longer belong to a case.
 """
 
 from __future__ import annotations
@@ -616,23 +618,15 @@ def _(c: Case):
     c.output_has(st, "설치된 yjcli 가 더 낮습니다")
     c.yjcli("update", "--force", "-y")
     c.lacks(".yjcli/manifest.toml", '"99.0.0"')
-    c.set_manifest_version("0.0.1")  # older repo → update hint, no block
+    c.set_manifest_version("0.3.4")  # repo from before 0.4: no backward compatibility
+    for args in (("update", "-y"), ("update", "--force", "-y"), ("-y",)):
+        r = c.yjcli(*args, expect=1)
+        c.output_has(r, "지원하지 않습니다", "Rebuilding a repo made with an older yjcli")
     st = c.yjcli("status")
-    c.output_has(st, "yjcli update")
-    r = c.yjcli("update", "-y")
-    c.output_has(r, "0.0.1 →")
+    c.output_has(st, "지원하지 않습니다")
 
 
-@case("22-legacy-plugin-id", "이전 manifest 의 secrets 플러그인 id 는 무시")
-def _(c: Case):
-    c.yjcli("-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
-    m = c.dir / ".yjcli/manifest.toml"
-    m.write_text(m.read_text().replace('plugins = ["runner"]', 'plugins = ["runner", "secrets"]'))
-    c.yjcli("update", "-y")
-    c.contains(".yjcli/manifest.toml", 'plugins = ["runner"]')
-
-
-@case("23-new-seed-on-update", "업데이트: 처음 보는 seed 는 생성, 사용자가 지운 seed 는 다시 만들지 않음")
+@case("22-new-seed-on-update", "업데이트: 처음 보는 seed 는 생성, 사용자가 지운 seed 는 다시 만들지 않음")
 def _(c: Case):
     import re
 
@@ -651,7 +645,7 @@ def _(c: Case):
     c.contains(".yjcli/manifest.toml", '"tools/runner/backend/runner.ps1"')
 
 
-@case("24-powershell", "make.ps1 + .ps1 스켈레톤 (pwsh 가 있을 때만)")
+@case("23-powershell", "make.ps1 + .ps1 스켈레톤 (pwsh 가 있을 때만)")
 def _(c: Case):
     if not shutil.which("pwsh"):
         c.log.append("pwsh not installed — skipped")
@@ -694,6 +688,34 @@ def _(c: Case):
     c.exists("dist/backend-msa/user/BUILD_INFO")
 
 
+@case("24-fullspec", "전체 선택: 모든 LLM·플랫폼·플러그인 + 플랫폼마다 서비스 (직접 살펴보는 용도)")
+def _(c: Case):
+    names = {
+        "backend": "api,admin", "backend-msa": "user,order", "backend-ssr": "web", "frontend": "app,console",
+        "mobile-app": "mobile", "pc-app": "desktop", "cli": "tool", "browser-extension": "ext,native_host",
+        "scheduler": "jobs",
+    }
+    args = ["-l", "all", "--plugin", "all", "-o", "backend=proto", "-o", "backend-ssr=proto", "-y"]
+    for platform, value in names.items():
+        args += ["-n", f"{platform}={value}"]
+    c.yjcli(*args)
+    for platform, value in names.items():
+        for tool in ("runner", "builder", "deployer"):
+            c.executable(f"tools/{tool}/{platform}/{tool}.sh")
+            c.exists(f"tools/{tool}/{platform}/{tool}.ps1")
+        for service in value.split(","):
+            c.exists(f"{platform}/{service}/.env.examples", f"tools/secrets/{platform}/{service}/.env.local-dev")
+    c.exists("backend/proto", "backend-msa/proto", "backend-ssr/proto", "browser-extension/native_host/apps",
+             "Makefile", "make.ps1", "CLAUDE.md", ".cursor/skills", ".claude/skills", ".agents/skills")
+    for d in (".cursor/skills", ".claude/skills", ".agents/skills"):
+        c.check(len(c.tree(d)) == 10, f"{d}: expected 10 skills")
+    for rel in c.tree():
+        c.check("{{" not in (c.dir / rel).read_text(encoding="utf-8", errors="ignore"), f"{rel}: unrendered template tag")
+    r = c.sh("make")
+    c.output_has(r, "Platforms: " + " ".join(names))
+    no_changes(c, c.yjcli("update", "--dry-run"))
+
+
 # =============================================================================
 
 
@@ -708,6 +730,11 @@ def main() -> int:
         print(f"no case matches {args.pattern!r}")
         return 1
     SANDBOX.mkdir(exist_ok=True)
+    if not args.pattern:  # drop leftovers of renamed/removed cases
+        known = {name for name, _, _ in CASES}
+        for stale in sorted(p for p in SANDBOX.iterdir() if p.name not in known):
+            print(f"removing stale sandbox/{stale.name}")
+            shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
     results: list[Case] = []
     for name, title, fn in selected:
         target = SANDBOX / name
