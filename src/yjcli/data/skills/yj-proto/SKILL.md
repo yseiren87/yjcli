@@ -22,7 +22,7 @@ proto/                      # the only proto location in the repository
     python/    pyproject.toml  # distribution {{proto_python_dist}}, package {{proto_python_package}}/
 ```
 
-Only the languages chosen in yjcli exist under `dist/`. Adding a language is a yjcli change (`yjcli start`), not a hand-made folder.
+Only the languages chosen in yjcli exist under `dist/`. Adding a language is a yjcli change (`yjcli proto add <language>`), not a hand-made folder.
 
 ## Schemas
 
@@ -42,7 +42,11 @@ Only the languages chosen in yjcli exist under `dist/`. Adding a language is a y
 - `proto/dist/<lang>/` is generated code plus its library manifest. Never edit generated files; change the `.proto` and regenerate.
 - Keep the manifest (`go.mod` / `pubspec.yaml` / `pyproject.toml`); Go also keeps `go.sum`. No lock files (`pubspec.lock`, `uv.lock`) — consumers own them.
 - Generated code is committed so consumers and CI build without protoc.
-- Codegen uses protoc (buf is not used) and runs through the repository's build tooling (see `yj-arch-core` › Tooling). Implement it there, not as an ad-hoc command.
+{{#if builder}}
+- Codegen uses protoc (buf is not used) and runs through `make proto-build` (`tools/builder/proto/builder.sh`, one `gen_<language>` function per language — see `tools/builder/GUIDE.md`). Implement it there, not as an ad-hoc command.
+{{else}}
+- Codegen uses protoc (buf is not used). The builder plugin, which hosts it (`make proto-build`), is not installed: ask the user to add it (`yjcli plugin add builder`) instead of writing an ad-hoc script.
+{{/if}}
 
 ## Consumers
 

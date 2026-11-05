@@ -46,8 +46,15 @@ Reduce AI cost and blast radius. Do not reinterpret the whole repo, add wrappers
 
 ## Tooling
 
+{{#if secrets}}
 {{include:plugin-secrets.md}}
 
+{{else}}
+### Secrets
+
+- This repository does not use `tools/secrets/` (chosen in yjcli): env values come from the project's own mechanism. Do not create `tools/secrets/` or `.env.<environment>` value files; ask the user to turn it on with `yjcli secrets on <platform>` if needed.
+
+{{/if}}
 {{plugins}}
 
 ## Skill routing

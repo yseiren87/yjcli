@@ -3,14 +3,8 @@
 # Each target only calls tools/<tool>/<platform>/<tool>.sh; see tools/<tool>/GUIDE.md.
 
 PLATFORMS := {{platforms}}
-{{#if builder}}
-BUILD_TARGETS := $(foreach p,$(PLATFORMS),$(p)-build-development $(p)-build-production)
-{{/if}}
-{{#if deployer}}
-DEPLOY_TARGETS := $(foreach p,$(PLATFORMS),$(p)-deploy-development $(p)-deploy-production)
-{{/if}}
 
-.PHONY: help{{#if runner}} $(PLATFORMS){{/if}}{{#if builder}} $(BUILD_TARGETS){{#if platform_proto}} proto-build{{/if}}{{/if}}{{#if deployer}} $(DEPLOY_TARGETS){{/if}}
+.PHONY: help{{#if runner}} $(PLATFORMS){{/if}}{{#if builder}}{{#if platform_proto}} proto-build{{/if}}{{/if}}
 
 help:
 	@echo "Usage:"
@@ -26,7 +20,7 @@ help:
 {{#if deployer}}
 	@echo "  make <platform>-deploy-<env> [NAME=<service>]  # deploy dist/ (tools/deployer)"
 {{/if}}
-	@echo "  <env>: development | production"
+	@echo "  <env>: development | production | any .env.<env> under tools/secrets/<platform>/<service>/"
 	@echo ""
 	@echo "Platforms: $(PLATFORMS)"
 {{#if runner}}
@@ -37,10 +31,6 @@ $(PLATFORMS):
 {{/if}}
 {{#if builder}}
 
-$(BUILD_TARGETS):
-	@p="$(word 1,$(subst -build-, ,$@))"; e="$(word 2,$(subst -build-, ,$@))"; \
-	test -x "tools/builder/$$p/builder.sh" || { echo "missing: tools/builder/$$p/builder.sh"; exit 1; }; \
-	"tools/builder/$$p/builder.sh" "$$e" $(NAME)
 {{#if platform_proto}}
 
 proto-build:
@@ -48,10 +38,19 @@ proto-build:
 	@"tools/builder/proto/builder.sh" $(PROTO_LANG)
 {{/if}}
 {{/if}}
-{{#if deployer}}
+{{#if builder}}
 
-$(DEPLOY_TARGETS):
-	@p="$(word 1,$(subst -deploy-, ,$@))"; e="$(word 2,$(subst -deploy-, ,$@))"; \
-	test -x "tools/deployer/$$p/deployer.sh" || { echo "missing: tools/deployer/$$p/deployer.sh"; exit 1; }; \
-	"tools/deployer/$$p/deployer.sh" "$$e" $(NAME)
+# <platform>-build-<env> / <platform>-deploy-<env> for any environment name.
+.DEFAULT:
+	@t="$@"; tool=""; \
+{{#if builder}}
+	case "$$t" in *-build-*) tool=builder; p="$${t%-build-*}"; e="$${t##*-build-}" ;; esac; \
+{{/if}}
+{{#if deployer}}
+	case "$$t" in *-deploy-*) tool=deployer; p="$${t%-deploy-*}"; e="$${t##*-deploy-}" ;; esac; \
+{{/if}}
+	case " $(PLATFORMS) " in *" $$p "*) ;; *) tool="" ;; esac; \
+	if [ -z "$$tool" ]; then echo "unknown target: $$t (see: make help)"; exit 1; fi; \
+	test -x "tools/$$tool/$$p/$$tool.sh" || { echo "missing: tools/$$tool/$$p/$$tool.sh"; exit 1; }; \
+	"tools/$$tool/$$p/$$tool.sh" "$$e" $(NAME)
 {{/if}}

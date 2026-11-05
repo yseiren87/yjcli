@@ -7,14 +7,16 @@
 # This is the entry point `make {{platform}}-build-<env>` calls. It does not have
 # to stay a single file: add helper scripts next to it and call them from here.
 #
-# Usage: tools/builder/{{platform}}/builder.sh <development|production> [service]
+# Usage: tools/builder/{{platform}}/builder.sh <environment> [service]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PLATFORM="$(basename "$SCRIPT_DIR")"
 PLATFORM_DIR="$ROOT_DIR/$PLATFORM"
+{{#if env_files}}
 SECRETS_DIR="$ROOT_DIR/tools/secrets/$PLATFORM"
+{{/if}}
 DIST_DIR="$ROOT_DIR/dist/$PLATFORM"
 ENVIRONMENT="${1:-}"
 NAME="${2:-}"
@@ -23,8 +25,12 @@ NAME="${2:-}"
 # build_one <service>
 #   Build one service into $OUT (= dist/{{platform}}/<service>/, already empty) so
 #   that folder alone can run. Runs inside $PLATFORM_DIR/<service>.
+{{#if env_files}}
 #   Available: $ENVIRONMENT, $OUT, $ENV_FILE (tools/secrets/…/.env.$ENVIRONMENT —
 #   read it only for build-time values; never copy it into $OUT).
+{{else}}
+#   Available: $ENVIRONMENT, $OUT. Never copy env value files into $OUT.
+{{/if}}
 build_one() {
   echo "builder for $PLATFORM/$1 is not implemented — read tools/builder/GUIDE.md" >&2
   return 1
@@ -36,13 +42,15 @@ build_one() {
 # -----------------------------------------------------------------------------
 
 usage() {
-  echo "usage: $0 <development|production> [service]" >&2
+  echo "usage: $0 <environment> [service]   (development, production, staging, ...)" >&2
   exit 1
 }
 
+# Any environment name: development and production come with every service; add more
+# (staging, test, ...) by creating tools/secrets/<platform>/<service>/.env.<name>.
+# local-dev is for local runs (tools/runner) only.
 case "$ENVIRONMENT" in
-  development | production) ;;
-  *) usage ;;
+  "" | local-dev | *[!A-Za-z0-9_-]*) usage ;;
 esac
 
 if [ -n "$NAME" ]; then
@@ -62,6 +70,18 @@ if [ "${#services[@]}" -eq 0 ]; then
   echo "no services under $PLATFORM_DIR" >&2
   exit 1
 fi
+{{#if env_files}}
+
+# The environment must exist for every service before anything is built.
+missing=0
+for name in "${services[@]}"; do
+  if [ ! -f "$SECRETS_DIR/$name/.env.$ENVIRONMENT" ]; then
+    echo "[build] $PLATFORM/$name: missing tools/secrets/$PLATFORM/$name/.env.$ENVIRONMENT" >&2
+    missing=1
+  fi
+done
+[ "$missing" -eq 0 ] || exit 1
+{{/if}}
 
 # package.json / pyproject.toml version, else $VERSION, else "unknown".
 resolve_version() {
@@ -88,7 +108,9 @@ trap '[ -n "$PARTIAL" ] && rm -rf "$PARTIAL"' EXIT
 
 for name in "${services[@]}"; do
   OUT="$DIST_DIR/$name"
+{{#if env_files}}
   ENV_FILE="$SECRETS_DIR/$name/.env.$ENVIRONMENT"
+{{/if}}
   echo "[build] $PLATFORM/$name ($ENVIRONMENT) -> dist/$PLATFORM/$name"
   rm -rf "$OUT"
   mkdir -p "$OUT"

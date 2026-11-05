@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Release yjcli: version bump -> tests -> build + PyPI dry-run -> git commit/tag/push -> PyPI publish.
 #
-#   ./release.sh                  full release (asks before every step)
+#   ./release.sh                  full release: checks run at once, then every input is asked
+#                                 (bump level, commit message), then one "y" runs all steps
 #   ./release.sh --publish-only   re-run build + publish for an already tagged HEAD
 #
-# Every step waits for "y" (continue) or "exit" (quit), case-insensitive.
+# Prompts take "y" (continue) or "exit" (quit), case-insensitive.
 # Tokens are read from .env.release (git-ignored) or the environment:
 #   UV_PUBLISH_TOKEN=pypi-...        required for the PyPI dry-run and publish
 #   GITHUB_TOKEN=github_pat_...      optional; used only for git push when set
@@ -31,9 +32,12 @@ ok()    { printf '  %s✔ %s%s\n' "$GREEN" "$*" "$RESET"; }
 warn()  { printf '  %s! %s%s\n' "$YELLOW" "$*" "$RESET"; }
 fail()  { printf '\n  %s✘ %s%s\n\n' "$RED" "$*" "$RESET" >&2; cleanup_and_exit 1; }
 
-STEP_TOTAL=6
+STEP_TOTAL=5
 step() {
   printf '\n%s━━━ Step %s/%s · %s ━━━%s\n' "$CYAN$BOLD" "$1" "$STEP_TOTAL" "$2" "$RESET"
+}
+phase() {
+  printf '\n%s━━━ %s ━━━%s\n' "$CYAN$BOLD" "$1" "$RESET"
 }
 
 # Prompt framed by blank lines so it stands out; prints only the lowercased
@@ -218,12 +222,12 @@ preflight() {
     || fail "Local $BRANCH is $behind commit(s) behind origin/$BRANCH. Pull first."
   ok "On $BRANCH, not behind origin."
   if [ -n "$(git status --porcelain)" ]; then
-    warn "Uncommitted changes will be included in the release commit (step 5):"
+    warn "Uncommitted changes will be included in the release commit:"
     git status --short | sed 's/^/      /'
   fi
   UNPUSHED="$ahead"
   if [ "$ahead" -gt 0 ]; then
-    warn "$ahead unpushed commit(s) will be pushed together with the release (step 5):"
+    warn "$ahead unpushed commit(s) will be pushed together with the release:"
     git log --format='      %h %s' "origin/$BRANCH..HEAD"
   fi
 }
@@ -231,61 +235,77 @@ preflight() {
 full_release() {
   printf '\n%s  yjcli release%s\n' "$BOLD" "$RESET"
 
-  step 1 "Preflight checks"
-  info "Checks tools, tokens, branch '$BRANCH', not behind origin; lists uncommitted changes."
-  confirm "Run preflight checks?"
+  # ---- checks: run right away, nothing is changed
+  phase "Preflight checks"
   preflight
-
-  step 2 "Version bump"
-  local current published level answer
+  local current published
   current="$(project_version)"
   published="$(published_version)" || fail "Could not read the latest version from PyPI."
   info "Current version : ${BOLD}${current}${RESET}  (pyproject.toml — bump is based on this)"
   info "Latest on PyPI  : ${BOLD}${published}${RESET}"
+
+  # ---- input: everything is asked first, nothing runs yet
+  phase "Input"
   info "major → $(bump "$current" major)   minor → $(bump "$current" minor)   fix → $(bump "$current" fix)"
+  local answer candidate
   while true; do
     answer="$(read_answer "Which part to bump?" "Type  major  ·  minor  ·  fix  ·  exit")"
     case "$answer" in
-      major|minor|fix) level="$answer"; break ;;
+      major|minor|fix) ;;
       exit) info "Exited by user."; cleanup_and_exit 0 ;;
-      *) warn "Please type major, minor, fix or exit." ;;
+      *) warn "Please type major, minor, fix or exit."; continue ;;
     esac
+    candidate="$(bump "$current" "$answer")"
+    if ! newer "$candidate" "$published"; then
+      warn "$candidate is not newer than PyPI's $published."
+    elif on_pypi "$candidate"; then
+      warn "$candidate is already on PyPI."
+    elif git rev-parse -q --verify "refs/tags/${TAG_PREFIX}${candidate}" >/dev/null; then
+      warn "Tag ${TAG_PREFIX}${candidate} already exists."
+    else
+      NEW_VERSION="$candidate"
+      break
+    fi
   done
-  NEW_VERSION="$(bump "$current" "$level")"
-  newer "$NEW_VERSION" "$published" || fail "$NEW_VERSION is not newer than PyPI's $published."
-  on_pypi "$NEW_VERSION" && fail "$NEW_VERSION is already on PyPI."
-  git rev-parse -q --verify "refs/tags/${TAG_PREFIX}${NEW_VERSION}" >/dev/null \
-    && fail "Tag ${TAG_PREFIX}${NEW_VERSION} already exists."
+  ok "Selected: ${current} → ${BOLD}${NEW_VERSION}${RESET}"
+  local message
+  message="$(read_text "Commit message?" "Type the message (e.g. release: ${NEW_VERSION} — ...)  ·  exit  to quit")" \
+    || cleanup_and_exit 0
+
+  # ---- plan: one confirmation for everything below
+  phase "Plan"
+  info "Version : ${current} → ${BOLD}${NEW_VERSION}${RESET}"
+  info "Tests   : unit tests + scripts/e2e.sh"
+  info "Build   : sdist + wheel into dist/, PyPI dry-run"
+  info "Commit  : every change below (git add -A; .gitignore'd files excluded) + the version bump"
+  git status --short | sed 's/^/           /'
+  info "Message : ${message}"
+  info "Tag     : ${TAG_PREFIX}${NEW_VERSION}"
+  info "Push    : origin ${BRANCH} + tag"
+  if [ "$UNPUSHED" -gt 0 ]; then
+    info "          includes ${UNPUSHED} earlier unpushed commit(s):"
+    git log --format='           %h %s' "origin/$BRANCH..HEAD"
+  fi
+  info "Publish : ${PACKAGE} ${NEW_VERSION} to PyPI"
+  warn "PyPI does not allow re-uploading ${NEW_VERSION} once published."
+  confirm "Run all of the above?"
+
+  # ---- run: no more questions; a failure stops here and rolls back what it can
+  step 1 "Version bump"
   OLD_VERSION="$current"
   VERSION_CHANGED=1
   uv version -q "$NEW_VERSION" --no-sync
   ok "Version: ${current} → ${BOLD}${NEW_VERSION}${RESET}"
 
-  step 3 "Tests"
-  info "Runs unit tests and scripts/e2e.sh."
-  confirm "Run tests?"
+  step 2 "Tests"
   uv run -q python -m unittest discover -s tests || fail "Unit tests failed."
   scripts/e2e.sh || fail "E2E scenarios failed (see sandbox/)."
   ok "All tests passed."
 
-  step 4 "Build + PyPI dry-run"
-  info "Builds sdist + wheel into dist/ and checks the upload without sending it."
-  confirm "Build and dry-run?"
+  step 3 "Build + PyPI dry-run"
   build_and_dry_run
 
-  step 5 "Git commit, tag, push"
-  info "Commit : every change below (git add -A; .gitignore'd files excluded)"
-  git status --short | sed 's/^/           /'
-  info "Tag    : ${TAG_PREFIX}${NEW_VERSION}"
-  info "Push   : origin ${BRANCH} + tag"
-  if [ "$UNPUSHED" -gt 0 ]; then
-    info "         includes ${UNPUSHED} earlier unpushed commit(s):"
-    git log --format='           %h %s' "origin/$BRANCH..HEAD"
-  fi
-  confirm "Commit, tag and push?"
-  local message
-  message="$(read_text "Commit message?" "Type the message (e.g. release: ${NEW_VERSION} — ...)  ·  exit  to quit")" \
-    || cleanup_and_exit 0
+  step 4 "Git commit, tag, push"
   git add -A
   git commit -q -m "$message"
   git tag "${TAG_PREFIX}${NEW_VERSION}"
@@ -294,9 +314,7 @@ full_release() {
   PUSHED=1
   ok "Pushed ${BRANCH} and ${TAG_PREFIX}${NEW_VERSION}."
 
-  step 6 "Publish to PyPI"
-  warn "PyPI does not allow re-uploading ${NEW_VERSION} once published."
-  confirm "Publish ${PACKAGE} ${NEW_VERSION} to PyPI?"
+  step 5 "Publish to PyPI"
   publish || fail "uv publish failed."
   printf '\n  %s%sRelease %s done.%s\n\n' "$GREEN" "$BOLD" "$NEW_VERSION" "$RESET"
 }

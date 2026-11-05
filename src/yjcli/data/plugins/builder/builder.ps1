@@ -6,7 +6,7 @@
 # This is the entry point `make.ps1 {{platform}}-build-<env>` calls. It does not
 # have to stay a single file: add helper scripts next to it and call them from here.
 #
-# Usage: tools/builder/{{platform}}/builder.ps1 <development|production> [service]
+# Usage: tools/builder/{{platform}}/builder.ps1 <environment> [service]
 param(
     [string]$Environment = "",
     [string]$Service = ""
@@ -17,15 +17,21 @@ $ScriptDir = $PSScriptRoot
 $RootDir = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 $Platform = Split-Path $ScriptDir -Leaf
 $PlatformDir = Join-Path $RootDir $Platform
+{{#if env_files}}
 $SecretsDir = Join-Path (Join-Path $RootDir "tools\secrets") $Platform
+{{/if}}
 $DistDir = Join-Path (Join-Path $RootDir "dist") $Platform
 
 # ---------------------------------------------------------------- implement me
 # Invoke-BuildOne <service>
 #   Build one service into $Out (= dist\{{platform}}\<service>\, already empty) so
 #   that folder alone can run. Runs inside $PlatformDir\<service>.
+{{#if env_files}}
 #   Available: $Environment, $Out, $EnvFile (tools\secrets\...\.env.<env> - read it
 #   only for build-time values; never copy it into $Out).
+{{else}}
+#   Available: $Environment, $Out. Never copy env value files into $Out.
+{{/if}}
 #   Check $LASTEXITCODE after each native command (`if ($LASTEXITCODE) { exit $LASTEXITCODE }`);
 #   the skeleton checks only the last one.
 function Invoke-BuildOne([string]$Name) {
@@ -38,8 +44,11 @@ function Invoke-BuildOne([string]$Name) {
 }
 # -----------------------------------------------------------------------------
 
-if ($Environment -notin @("development", "production")) {
-    Write-Host "usage: builder.ps1 <development|production> [service]"
+# Any environment name: development and production come with every service; add more
+# (staging, test, ...) by creating tools\secrets\<platform>\<service>\.env.<name>.
+# local-dev is for local runs (tools/runner) only.
+if (-not $Environment -or $Environment -eq "local-dev" -or $Environment -notmatch '^[A-Za-z0-9_-]+$') {
+    Write-Host "usage: builder.ps1 <environment> [service]   (development, production, staging, ...)"
     exit 1
 }
 
@@ -57,6 +66,18 @@ if ($services.Count -eq 0) {
     Write-Host "no services under $PlatformDir"
     exit 1
 }
+{{#if env_files}}
+
+# The environment must exist for every service before anything is built.
+$missing = $false
+foreach ($name in $services) {
+    if (-not (Test-Path (Join-Path (Join-Path $SecretsDir $name) ".env.$Environment"))) {
+        Write-Host "[build] $Platform/${name}: missing tools/secrets/$Platform/$name/.env.$Environment"
+        $missing = $true
+    }
+}
+if ($missing) { exit 1 }
+{{/if}}
 
 # package.json / pyproject.toml version, else $env:VERSION, else "unknown".
 function Resolve-Version([string]$Dir) {
@@ -97,7 +118,9 @@ $partial = $null
 try {
     foreach ($name in $services) {
         $Out = Join-Path $DistDir $name
+{{#if env_files}}
         $EnvFile = Join-Path (Join-Path $SecretsDir $name) ".env.$Environment"
+{{/if}}
         Write-Host "[build] $Platform/$name ($Environment) -> dist/$Platform/$name"
         if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
         New-Item -ItemType Directory -Force -Path $Out | Out-Null

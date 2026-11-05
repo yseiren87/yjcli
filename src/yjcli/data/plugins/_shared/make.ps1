@@ -24,7 +24,7 @@ function Show-Help {
 {{#if deployer}}
     Write-Host "  make.ps1 <platform>-deploy-<env> [NAME=<service>]  # deploy dist/ (tools/deployer)"
 {{/if}}
-    Write-Host "  <env>: development | production"
+    Write-Host "  <env>: development | production | any .env.<env> under tools/secrets/<platform>/<service>/"
     Write-Host ""
     Write-Host "Platforms: $($Platforms -join ' ')"
 }
@@ -53,12 +53,12 @@ if ($Target -eq "proto-build") {
 {{/if}}
 {{/if}}
 {{#if builder}}
-if ($Target -match "^(.+)-build-(development|production)$") {
+if ($Target -match "^(.+)-build-([A-Za-z0-9_-]+)$") {
     $tool = "builder"; $platform = $Matches[1]; $scriptArgs = @($Matches[2])
 }
 {{/if}}
 {{#if deployer}}
-if ($Target -match "^(.+)-deploy-(development|production)$") {
+if ($Target -match "^(.+)-deploy-([A-Za-z0-9_-]+)$") {
     $tool = "deployer"; $platform = $Matches[1]; $scriptArgs = @($Matches[2])
 }
 {{/if}}

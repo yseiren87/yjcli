@@ -11,14 +11,17 @@ The deployer ships what the builder put in `dist/`. It never builds.
 | `make <platform>-deploy-<env>` / `./make.ps1 <platform>-deploy-<env>` | `tools/deployer/<platform>/deployer.sh <env>` / `deployer.ps1 <env>` |
 | `… NAME=<service>` | same script, with `<service>` as the second argument |
 
-`<env>` is `development` or `production`. Build first with `make <platform>-build-<env>`. Current services:
+`<env>` is any environment the builder accepts (`development`, `production`, or one you added as `tools/secrets/<platform>/<service>/.env.<env>`). Build first with `make <platform>-build-<env>`. Current services:
 
 {{service_list}}
 
 ## Behavior
 
-- Reject an `<env>` other than `development` / `production`. Deploy every service when no service is given; an unknown name is an error.
+- Reject an invalid environment name and `local-dev`. Deploy every service when no service is given; an unknown name is an error.
 - Before deploying anything, check that every service has a complete build (`dist/<platform>/<service>/BUILD_INFO`) and `tools/secrets/<platform>/<service>/.env.<env>`. If one is missing, deploy nothing and say which build to run.
+{{#if no_secrets}}
+- No `tools/secrets/` for {{no_secrets_platforms}} (chosen in yjcli): skip the env file check and `--env-file`; the target supplies env values at run time by the project's own mechanism.
+{{/if}}
 - Warn when `BUILD_INFO` says the build was made for another environment.
 - Stop at the first failing service with a non-zero exit code.
 
@@ -45,6 +48,20 @@ When a service is shipped as a container:
 
 Other targets (static hosting, scp, app stores, …) follow the same rule: the input is `dist/`, env values are supplied by the target at run time.
 
+## User input
+
+When a script needs anything from the user (a target, a version, a confirmation, a message), it asks for everything up front and acts only at the end:
+
+1. Checks first: run what needs no input (tools, files, `BUILD_INFO`, credentials) right away and stop with a clear message before asking anything.
+2. Collect every input: ask all questions in a row and keep the answers in variables. Nothing is changed while asking. Re-ask on an invalid answer instead of exiting.
+3. Show the plan: one screen with every answer and what will happen (services, environment, target, irreversible steps).
+4. Confirm once: a single `y` (anything else quits without changes).
+5. Run: execute every step with the stored values and no further prompts. On failure stop, undo what can be undone, and say what is left.
+
+Arguments and env vars come before prompts: a value given on the command line is not asked again, and when stdin is not a terminal (CI) the script never prompts — it fails listing the missing values instead.
+
 ## More than one script
 
 One entry script per platform is a starting point, not a limit: when a platform needs more (Dockerfiles, per-service deploy scripts, rollout and health-check helpers), add files under `tools/deployer/<platform>/` or `tools/deployer/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.
+
+Everything under `tools/deployer/` belongs to this plugin: removing the plugin in yjcli deletes `tools/deployer/`, and removing a platform deletes `tools/deployer/<platform>/` — files you added there included.

@@ -16,11 +16,12 @@
 
 yjcli is a Python CLI (Typer + questionary + rich) that scaffolds YJ-architecture repositories: platform/service code folders, `tools/` plugins (runner, builder, deployer), env value files (`tools/secrets/`), and agent wiring (AGENTS.md, skills for Cursor / Claude Code / Codex).
 
-- `src/yjcli/catalog/` — LLMs, platforms, plugins, skills.
-- `src/yjcli/core/` — selection → planner → executor, manifest, template renderer.
-- `src/yjcli/ui/` — wizard and prompts.
+- `src/yjcli/catalog.py` — LLMs, platforms, proto languages, plugins, skills.
+- `src/yjcli/selection.py` → `plan.py` → `apply.py` — request → target config → plan → all-or-nothing apply.
+- `src/yjcli/repo.py` (manifest, repository state, version guard), `template.py` (template language, blocks), `references.py` (stale references).
+- `src/yjcli/ui/` — prompts, the wizard, the update wizard, plan/result reports. `src/yjcli/cli.py` — commands.
 - `src/yjcli/data/` — templates rendered into target repos (plugins, skills, root files).
-- `scripts/e2e.py` — end-to-end scenarios written into `sandbox/<case>/` (git-ignored).
+- `scripts/e2e.py` — end-to-end scenarios written into `sandbox/<case>/` (git-ignored), grouped by area (1x create, 2x add, 3x update, 4x remove, 5x arguments).
 
 ## Environment
 
@@ -44,4 +45,4 @@ When a case is added, renamed or removed, keep the numbering in `scripts/e2e.py`
 - Generated `.sh` scripts must run on macOS's bash 3.2 (no `wait -n`, no associative arrays, guard empty arrays).
 - Generated `.ps1` templates must be ASCII-only (Windows PowerShell 5.1 reads BOM-less files as ANSI); a unit test enforces this.
 - yjcli builds structure, not project logic: tooling templates ship a working skeleton plus a `GUIDE.md`, and the target project implements one function per script.
-- No backward compatibility with repos made before `MIN_SUPPORTED` in `core/manifest.py` (currently 0.5.0; capped at the installed version until a release bumps it).
+- No backward compatibility with repos made before `MIN_SUPPORTED` in `repo.py` (currently 0.5.0; capped at the installed version until a release bumps it).

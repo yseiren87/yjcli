@@ -11,7 +11,7 @@ The builder turns each service into a runnable build under `dist/`. It only buil
 | `make <platform>-build-<env>` / `./make.ps1 <platform>-build-<env>` | `tools/builder/<platform>/builder.sh <env>` / `builder.ps1 <env>` |
 | `… NAME=<service>` | same script, with `<service>` as the second argument |
 
-`<env>` is `development` or `production`. Current services:
+`<env>` is an environment name: `development` and `production` come with every service; add more (`staging`, `test`, …) by creating `tools/secrets/<platform>/<service>/.env.<env>` for every service of the platform. `local-dev` is for local runs only. Current services:
 
 {{service_list}}
 
@@ -26,7 +26,8 @@ The builder turns each service into a runnable build under `dist/`. It only buil
 
 ## Behavior
 
-- Reject an `<env>` other than `development` / `production`. Build every service when no service is given; an unknown name is an error.
+- Reject an invalid environment name and `local-dev`. Build every service when no service is given; an unknown name is an error.
+- On platforms with `tools/secrets/`, every service being built needs `.env.<env>`; if one is missing, build nothing and say which file to add.
 - Empty `dist/<platform>/<service>/` before each build.
 - Stop at the first failing service with a non-zero exit code.
 {{#if platform_proto}}
@@ -37,6 +38,9 @@ The builder turns each service into a runnable build under `dist/`. It only buil
 
 - Keep the per-service build in one function: `build_one <service>` (`builder.sh`) / `Invoke-BuildOne <service>` (`builder.ps1`). It runs inside `<platform>/<service>/` and writes into `$OUT` / `$Out`.
 - It can use the environment, the output folder, and the path of `tools/secrets/<platform>/<service>/.env.<env>` (`$ENV_FILE` / `$EnvFile`). Read that file only for values that must be fixed at build time (e.g. a frontend bundle); never copy it into the output.
+{{#if no_secrets}}
+- No `tools/secrets/` for {{no_secrets_platforms}} (chosen in yjcli): there is no `$ENV_FILE`, and build-time values come from the project's own mechanism.
+{{/if}}
 
 {{#if platform_proto}}
 ## Proto contract
@@ -61,6 +65,20 @@ The shared gRPC/protobuf contract lives at the repository root in `proto/` (sche
 - `builder.sh` and `builder.ps1` produce the same output.
 - `builder.sh` works on macOS's bash 3.2; `builder.ps1` stays ASCII-only.
 
+## User input
+
+When a script needs anything from the user (a target, a version, a confirmation, a message), it asks for everything up front and acts only at the end:
+
+1. Checks first: run what needs no input (tools, files, `BUILD_INFO`, credentials) right away and stop with a clear message before asking anything.
+2. Collect every input: ask all questions in a row and keep the answers in variables. Nothing is changed while asking. Re-ask on an invalid answer instead of exiting.
+3. Show the plan: one screen with every answer and what will happen (services, environment, target, irreversible steps).
+4. Confirm once: a single `y` (anything else quits without changes).
+5. Run: execute every step with the stored values and no further prompts. On failure stop, undo what can be undone, and say what is left.
+
+Arguments and env vars come before prompts: a value given on the command line is not asked again, and when stdin is not a terminal (CI) the script never prompts — it fails listing the missing values instead.
+
 ## More than one script
 
 One entry script per platform is a starting point, not a limit: when a platform needs more (per-language build steps, per-service scripts, a shared helper), add files under `tools/builder/<platform>/` or `tools/builder/` and call them from the entry script instead of growing one file indefinitely. Keep the entry script name — `make` calls it.
+
+Everything under `tools/builder/` belongs to this plugin: removing the plugin in yjcli deletes `tools/builder/`, and removing a platform deletes `tools/builder/<platform>/` — files you added there included.

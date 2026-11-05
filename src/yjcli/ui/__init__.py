@@ -1,1 +1,1 @@
-"""Interactive wizard (questionary) and plan summary (rich)."""
+"""Interactive screens: prompts, the wizard, the update wizard, and plan/result reports."""

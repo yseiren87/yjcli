@@ -3,7 +3,7 @@
 #   scripts/e2e.sh            all cases
 #   scripts/e2e.sh -k wizard  cases whose name contains "wizard"
 #   scripts/e2e.sh -v         print yjcli output for failed cases
-#   scripts/e2e.sh -k fullspec  regenerate sandbox/24-fullspec (everything selected)
+#   scripts/e2e.sh -k everything  regenerate sandbox/11-create-everything (everything selected)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec uv run python scripts/e2e.py "$@"

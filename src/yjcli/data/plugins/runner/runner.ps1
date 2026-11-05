@@ -1,8 +1,14 @@
 # Local runner for platform "{{platform}}" (yjcli runner plugin; repository-owned).
 #
 # Read tools/runner/GUIDE.md, then implement Invoke-RunOne below. Everything
+{{#if env_files}}
 # else - service discovery, .env.local-dev loading, concurrent start, [service]
 # output prefix, Ctrl+C / failure cleanup - already works.
+{{else}}
+# else - service discovery, concurrent start, [service] output prefix, Ctrl+C /
+# failure cleanup - already works. This platform has no tools/secrets/: services
+# get env values from the project's own mechanism.
+{{/if}}
 # This is the entry point `make.ps1 {{platform}}` calls. It does not have to stay
 # a single file: add helper scripts next to it and call them from here.
 #
@@ -17,12 +23,18 @@ $ScriptDir = $PSScriptRoot
 $RootDir = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 $Platform = Split-Path $ScriptDir -Leaf
 $PlatformDir = Join-Path $RootDir $Platform
+{{#if env_files}}
 $SecretsDir = Join-Path (Join-Path $RootDir "tools\secrets") $Platform
+{{/if}}
 
 # ---------------------------------------------------------------- implement me
 # Invoke-RunOne <service>
 #   Start one service in the foreground and stay attached until it exits.
+{{#if env_files}}
 #   Runs inside $PlatformDir\<service> with its .env.local-dev already in $env:.
+{{else}}
+#   Runs inside $PlatformDir\<service>.
+{{/if}}
 #   Print with Write-Output (Write-Host bypasses the [service] prefix).
 function Invoke-RunOne([string]$Name) {
     Write-Output "runner for $Platform/$Name is not implemented - read tools/runner/GUIDE.md"
@@ -34,18 +46,22 @@ function Invoke-RunOne([string]$Name) {
 }
 # -----------------------------------------------------------------------------
 
+{{#if env_files}}
 function Get-EnvFile([string]$Name) {
     Join-Path (Join-Path $SecretsDir $Name) ".env.local-dev"
 }
 
+{{/if}}
 if ($Child) {
     Set-Location (Join-Path $PlatformDir $Service)
+{{#if env_files}}
     # KEY=VALUE lines, values taken literally (same rules as docker --env-file).
     foreach ($entry in Get-Content (Get-EnvFile $Service)) {
         if ($entry -eq "" -or $entry.StartsWith("#") -or -not $entry.Contains("=")) { continue }
         $key, $value = $entry.Split("=", 2)
         Set-Item -Path "env:$key" -Value $value
     }
+{{/if}}
     Invoke-RunOne $Service 2>&1 | ForEach-Object { Write-Host "[$Service] $_" }
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
     exit 0
@@ -66,10 +82,12 @@ $shell = (Get-Process -Id $PID).Path
 $procs = @()
 $names = @()
 foreach ($name in $services) {
+{{#if env_files}}
     if (-not (Test-Path (Get-EnvFile $name))) {
         Write-Host "[$name] skipped: missing tools/secrets/$Platform/$name/.env.local-dev"
         continue
     }
+{{/if}}
     $p = Start-Process -FilePath $shell -NoNewWindow -PassThru -ArgumentList @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-Service", $name, "-Child")
     $null = $p.Handle  # keeps ExitCode readable after exit

@@ -1,8 +1,11 @@
-"""Step-by-step wizard. Asks only what the command line left open.
+"""`yjcli wizard`.
 
-Steps: 1 LLM → 2 platforms → 3 plugins → 4 service names (one screen per
-platform; the proto contract asks for languages instead) → 5 summary + confirm.
-← goes back one screen; nothing is written until the user confirms.
+Screens: LLM → platforms → plugins → per platform (existing services, new names,
+options; languages for proto) → confirm. The list is rebuilt after every answer,
+so the per-platform screens follow the platform choice. ← goes to the previous
+screen. On a configured repository every screen starts from the stored
+configuration and marks what is installed: checking adds, unchecking removes.
+Nothing is written before the confirmation.
 """
 
 from __future__ import annotations
@@ -11,271 +14,205 @@ from typing import Callable
 
 from rich.console import Console
 
-from yjcli.catalog.llms import LLMS
-from yjcli.catalog.platforms import LANGUAGES, PLATFORM_BY_ID, PLATFORMS, with_required
-from yjcli.catalog.plugins import PLUGINS, disabled_reasons, drop_dependents
-from yjcli.core.names import parse_names
-from yjcli.core.planner import Plan, is_env_value
-from yjcli.core.selection import Draft, validate
-from yjcli.core.state import RepoState
+from yjcli.catalog import LANGUAGES, LLMS, PLATFORM, PLATFORMS, PLUGINS, drop_dependents, plugins_lacking, with_required
+from yjcli.plan import Plan
+from yjcli.repo import Repo
+from yjcli.selection import Request, check_units, secrets_wanted
+from yjcli.ui import report
 from yjcli.ui.prompts import BACK, Item, Prompter
-from yjcli.ui.summary import print_summary
 
-STEP_TITLES = ("LLM 대상", "플랫폼", "플러그인", "서비스 이름", "확인 및 실행")
+STEPS = ("LLM 대상", "플랫폼", "플러그인", "플랫폼 설정", "확인 및 실행")
+MakePlan = Callable[[Request], tuple[Plan | None, list[str]]]
 
 
 class Cancelled(Exception):
     pass
 
 
-def _header(console: Console, draft: Draft, state: RepoState, current: int, sub: str = "") -> None:
-    mode = "신규 설치" if draft.mode == "new" else "업데이트"
+def installed_label(repo: Repo, pid: str) -> str:
+    units = repo.existing(pid)
+    if not units and not (repo.manifest and pid in repo.manifest.units):
+        return ""
+    return "  설치됨" + (f" · {', '.join(units)}" if units else "")
+
+
+def _header(console: Console, repo: Repo, req: Request, step: int, sub: str = "") -> None:
     console.print()
-    console.print(f"[bold]yjcli[/bold] · {state.root} · {mode}")
-    values = (
-        ", ".join(draft.llms or []),
-        ", ".join(draft.platforms or []),
-        ", ".join(draft.plugins or []) or ("없음" if draft.plugins is not None else ""),
-        ", ".join(f"{p}/dist/{n}" if PLATFORM_BY_ID[p].is_contract else f"{p}/{n}"
-                  for p, ns in draft.names.items() for n in ns),
-        "",
-    )
-    keys = ("llms", "platforms", "plugins", None, None)
-    for i, title in enumerate(STEP_TITLES):
-        if i < current:
-            mark = "✔"
-        elif i == current:
-            mark = "▸"
-        else:
-            mark = "○"
-        given = " (인자)" if keys[i] and keys[i] in draft.given else ""
-        value = values[i] if i < current else (sub if i == current else "")
-        console.print(f"  {mark} {i + 1}. {title:<10} {value}{given}", markup=False)
+    console.print(f"[bold]yjcli[/bold] · {repo.root} · {'업데이트' if repo.configured else '신규 설치'}")
+    done = (", ".join(req.llms or []), ", ".join(req.platforms or []),
+            ", ".join(req.plugins or []) or ("없음" if req.plugins is not None else ""), "", "")
+    answered = ("llms", "platforms", "plugins", None, None)
+    for i, title in enumerate(STEPS):
+        mark = "✔" if i < step else "▸" if i == step else "○"
+        value = done[i] if i < step else sub if i == step else ""
+        tag = " (인자)" if answered[i] in req.answered else ""
+        console.print(f"  {mark} {i + 1}. {title:<10} {value}{tag}", markup=False)
     console.print()
 
 
-def _plugin_toggle(current: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
-    if now:
-        return [p.id for p in PLUGINS if p.id in current], None
-    updated, dropped = drop_dependents(current)
-    msg = f"{value} 가 없으면 {', '.join(dropped)} 를 쓸 수 없어 함께 해제했습니다" if dropped else None
-    return updated, msg
-
-
-def _platform_rules(state: RepoState):
-    """Toggle + lock rules of the platform step: platforms with services and
-    platforms another selected one requires (proto for backend-msa) stay checked."""
-    with_services = {p for p in (state.manifest.platforms if state.manifest else {}) if state.existing(p)}
-
-    def reasons(selected: list[str]) -> dict[str, str | None]:
-        out: dict[str, str | None] = {}
-        for p in PLATFORMS:
-            needers = [q for q in selected if p.id in PLATFORM_BY_ID[q].requires]
-            if p.id in with_services:
-                unit = "언어" if p.is_contract else "서비스"
-                out[p.id] = f"{unit} {len(state.existing(p.id))}개"
-            elif needers:
-                out[p.id] = f"{', '.join(needers)} 가 사용"
-            else:
-                out[p.id] = None
-        return out
-
-    def toggle(current: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
-        updated, added = with_required(list(dict.fromkeys([*current, *with_services])))
-        msg = f"{value} 는 {', '.join(added)} 가 필요해 함께 선택했습니다" if now and added else None
-        return updated, msg
-
-    return with_services, reasons, toggle
-
-
-def run_wizard(
-    draft: Draft,
-    state: RepoState,
-    prompter: Prompter,
-    console: Console,
-    make_plan: Callable[[Draft], Plan],
-    *,
-    dry_run: bool = False,
-    diff_root=None,
-) -> tuple[Draft, Plan]:
-    """Fill the draft interactively and return it with the confirmed plan.
-
-    With dry_run the plan is printed in full and returned without asking.
-    """
-    step = 0
-    # Per-platform position inside step 3 when coming back from step 4.
-    name_index: int | None = None
-
-    def skip(i: int) -> bool:
-        return {0: "llms", 1: "platforms", 2: "plugins"}.get(i) in draft.given
-
-    direction = 1
-    while True:
-        if step < 0:
-            step = 0
-            direction = 1
-        if step in (0, 1, 2) and skip(step):
-            step += direction
+def _screens(req: Request, repo: Repo) -> list[tuple[str, str | None]]:
+    out: list[tuple[str, str | None]] = [(s, None) for s in ("llms", "platforms", "plugins") if s not in req.answered]
+    for pid in req.platforms or []:
+        if PLATFORM[pid].contract:
+            if f"units:{pid}" not in req.answered:
+                out.append(("languages", pid))
             continue
+        if f"units:{pid}" not in req.answered:
+            if repo.existing(pid):
+                out.append(("services", pid))
+            out.append(("names", pid))
+        if "secrets" not in req.answered:
+            out.append(("options", pid))
+    return out + [("confirm", None)]
 
-        if step == 0:
-            _header(console, draft, state, 0)
-            selected = set(draft.llms or [])
-            answer = prompter.checkbox(
-                "LLM 대상을 선택하세요",
-                [Item(l.id, l.label, l.id in selected) for l in LLMS],
-                minimum=1,
-            )
-            if answer is BACK:
-                direction = -1
-                step -= 1
-                continue
-            draft.llms = answer
-        elif step == 1:
-            _header(console, draft, state, 1)
-            with_services, reasons, toggle = _platform_rules(state)
-            selected, _ = with_required(list(dict.fromkeys([*(draft.platforms or []), *with_services])))
-            why = reasons(selected)
-            items = [Item(p.id, f"{p.id:<18} {p.hint}", p.id in selected, disabled=why[p.id]) for p in PLATFORMS]
-            answer = prompter.checkbox("플랫폼을 선택하세요", items, minimum=1, on_toggle=toggle,
-                                       disabled_for=reasons)
-            if answer is BACK:
-                direction = -1
-                step -= 1
-                continue
-            draft.platforms, _ = with_required([p.id for p in PLATFORMS if p.id in answer])
-            for pid in list(draft.names):
-                if pid not in draft.platforms:
-                    del draft.names[pid]
-        elif step == 2:
-            _header(console, draft, state, 2)
-            if draft.plugins is None:
-                selected = {p.id for p in PLUGINS if p.default}
-            else:
-                selected = set(draft.plugins)
-            selected, _ = drop_dependents(list(selected))
-            reasons = disabled_reasons(selected)
-            items = [
-                Item(
-                    p.id,
-                    f"{p.id:<9} {p.label:<30} {p.location}",
-                    p.id in selected,
-                    disabled=reasons[p.id],
-                )
-                for p in PLUGINS
-            ]
-            answer = prompter.checkbox("플러그인을 선택하세요", items, on_toggle=_plugin_toggle,
-                                       disabled_for=disabled_reasons,
-                                       instruction="(space: 선택/해제, enter: 다음, ←: 이전)")
-            if answer is BACK:
-                direction = -1
-                step -= 1
-                continue
-            draft.plugins = [p.id for p in PLUGINS if p.id in answer]
-        elif step == 3:
-            result = _names_step(draft, state, prompter, console, start=name_index)
-            name_index = None
-            if result is BACK:
-                direction = -1
-                step -= 1
-                continue
-        elif step == 4:
-            errors = validate(draft, state)
+
+def _platform_locks(selected: list[str]) -> dict[str, str | None]:
+    return {p.id: (", ".join(q for q in selected if p.id in PLATFORM[q].requires) + " 가 사용")
+            if any(p.id in PLATFORM[q].requires for q in selected) else None for p in PLATFORMS}
+
+
+def _platform_toggle(selected: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
+    full, added = with_required(selected)
+    return full, (f"{value} 는 {', '.join(added)} 가 필요해 함께 선택했습니다" if now and added else None)
+
+
+def _plugin_locks(selected: list[str]) -> dict[str, str | None]:
+    lacking = {p.id: [r for r in p.requires if r not in selected] for p in PLUGINS}
+    return {p: (f"{', '.join(r)} 먼저 선택" if r else None) for p, r in lacking.items()}
+
+
+def _plugin_toggle(selected: list[str], value: str, now: bool) -> tuple[list[str], str | None]:
+    kept, dropped = drop_dependents(selected)
+    return kept, (f"{value} 가 없으면 {', '.join(dropped)} 를 쓸 수 없어 함께 해제했습니다" if dropped else None)
+
+
+def _set(req: Request, pid: str, *, add: list[str] | None = None, remove: list[str] | None = None) -> None:
+    for units, values in ((req.add, add), (req.remove, remove)):
+        if values is None:
+            continue
+        if values:
+            units[pid] = list(values)
+        else:
+            units.pop(pid, None)
+
+
+def run_wizard(req: Request, repo: Repo, prompter: Prompter, console: Console, make_plan: MakePlan, *,
+               dry_run: bool = False, diff_root=None) -> Plan:
+    """Fill the request interactively; returns the confirmed plan (raises Cancelled)."""
+    stored_llms = set(repo.manifest.llms) if repo.manifest else set()
+    stored_plugins = set(repo.manifest.plugins) if repo.manifest else set()
+    have = set(repo.platforms())
+    i = 0
+    while True:
+        screens = _screens(req, repo)
+        i = max(0, min(i, len(screens) - 1))
+        kind, pid = screens[i]
+        per_platform = [s for s in screens if s[1]]
+        answer = None
+
+        if kind == "llms":
+            _header(console, repo, req, 0)
+            chosen = set(req.llms or [])
+            answer = prompter.checkbox("LLM 대상을 선택하세요", [
+                Item(l.id, l.label + ("  설치됨" if l.id in stored_llms else ""), l.id in chosen) for l in LLMS
+            ], minimum=1)
+            if answer is not BACK:
+                req.llms = answer
+        elif kind == "platforms":
+            _header(console, repo, req, 1)
+            chosen, _ = with_required(req.platforms or [])
+            locks = _platform_locks(chosen)
+            answer = prompter.checkbox("플랫폼을 선택하세요 (해제하면 그 플랫폼의 코드까지 삭제)", [
+                Item(p.id, f"{p.id:<18} {p.hint}{installed_label(repo, p.id)}", p.id in chosen, locks[p.id])
+                for p in PLATFORMS
+            ], minimum=1, toggle=_platform_toggle, locks=_platform_locks)
+            if answer is not BACK:
+                req.platforms, _ = with_required(answer)
+                for units in (req.add, req.remove):
+                    for p in [p for p in units if p not in req.platforms]:
+                        del units[p]
+        elif kind == "plugins":
+            _header(console, repo, req, 2)
+            chosen = req.plugins if req.plugins is not None else [p.id for p in PLUGINS if p.default]
+            chosen, _ = drop_dependents(chosen)
+            locks = _plugin_locks(chosen)
+            answer = prompter.checkbox("플러그인을 선택하세요", [
+                Item(p.id, f"{p.id:<9} {p.label}" + ("  설치됨" if p.id in stored_plugins else ""), p.id in chosen,
+                     locks[p.id]) for p in PLUGINS
+            ], toggle=_plugin_toggle, locks=_plugin_locks)
+            if answer is not BACK:
+                req.plugins = [p.id for p in PLUGINS if p.id in answer and not plugins_lacking(answer).get(p.id)]
+        elif kind == "confirm":
+            _header(console, repo, req, 4)
+            plan, errors = make_plan(req)
             if errors:
                 for e in errors:
-                    console.print(f"[red]error:[/red] {e}")
-                direction = -1
-                step = 1
+                    console.print(f"[red]error:[/red] {e}", highlight=False)
+                i = 0
                 continue
-            _header(console, draft, state, 4)
-            plan = make_plan(draft)
-            print_summary(console, plan, draft, details=dry_run, diff_root=diff_root)
+            report.summary(console, plan, details=dry_run, diff_root=diff_root)
             if dry_run:
-                return draft, plan
-            choices = [("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계"), ("cancel", "취소")]
-            if not draft.purge and any(not is_env_value(rel) for rel in plan.orphans):
-                choices.insert(1, ("purge", "적용 + 남겨 둔 파일도 삭제 (--purge, env 값 파일 제외)"))
-            while True:
-                choice = prompter.select("적용할까요?", choices)
-                if choice == "details":
-                    print_summary(console, plan, draft, details=True, diff_root=state.root)
-                    continue
-                break
-            if choice == "purge":
-                draft.purge = True
-                plan = make_plan(draft)
-                print_summary(console, plan, draft, details=True)
-                return draft, plan
+                return plan
+            if plan.removals:
+                question = "삭제가 포함되어 있습니다. 적용할까요?"
+                choices = [("cancel", "취소"), ("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계")]
+            else:
+                question = "적용할까요?"
+                choices = [("apply", "적용"), ("details", "자세히 보기"), ("back", "이전 단계"), ("cancel", "취소")]
+            choice = prompter.select(question, choices)
+            while choice == "details":
+                report.summary(console, plan, details=True, diff_root=repo.root)
+                choice = prompter.select(question, choices)
             if choice == "apply":
-                return draft, plan
+                req.code_removal_ok = True  # the confirmation listed every removal
+                return plan
             if choice == "cancel":
                 raise Cancelled
-            direction = -1
-            step = 3
-            name_index = -1
-            continue
-        direction = 1
-        step += 1
-
-
-def _names_step(draft: Draft, state: RepoState, prompter: Prompter, console: Console, *, start: int | None):
-    platforms = [p for p in (draft.platforms or []) if f"names:{p}" not in draft.given]
-    if not platforms:
-        return None if start is None else BACK
-    new_platforms = set(draft.new_platforms(state))
-    i = 0 if start is None else (len(platforms) - 1 if start < 0 else start)
-    while 0 <= i < len(platforms):
-        pid = platforms[i]
-        platform = PLATFORM_BY_ID[pid]
-        existing = set(state.existing(pid))
-        is_new = pid in new_platforms
-        _header(console, draft, state, 3, f"({i + 1}/{len(platforms)}) {pid}")
-        if platform.is_contract:
-            chosen = set(draft.names.get(pid, []))
-            answer = prompter.checkbox(
-                f"{pid}: 코드를 생성할 언어를 선택하세요 (proto/dist/<언어>/)",
-                [Item(l.id, f"{l.id:<8} {l.label}", l.id in existing or l.id in chosen,
-                      disabled="이미 있음" if l.id in existing else None) for l in LANGUAGES],
-                minimum=1 if is_new else 0,
-                instruction="(space: 선택/해제, enter: 다음, ←: 이전)",
-            )
-            if answer is BACK:
-                i -= 1
-                continue
-            new = [l for l in answer if l not in existing]
-            if new:
-                draft.names[pid] = new
-                console.print("  → " + ", ".join(f"{pid}/dist/{l}" for l in new), markup=False)
-            else:
-                draft.names.pop(pid, None)
-            i += 1
-            continue
-
-        def check(raw: str, existing=existing, is_new=is_new) -> str | None:
-            parsed = parse_names(raw, existing=existing)
-            if parsed.errors:
-                return "; ".join(parsed.errors)
-            if is_new and not parsed.names:
-                return "새 플랫폼은 서비스 이름이 최소 1개 필요합니다"
-            return None
-
-        hint = f" — 기존: {', '.join(sorted(existing))}" if existing else ""
-        answer = prompter.text(
-            f"{pid} 서비스 이름 (공백 또는 , 로 구분){hint}:",
-            default=", ".join(draft.names.get(pid, [])),
-            validate=check,
-        )
-        if answer is BACK:
-            i -= 1
-            continue
-        parsed = parse_names(answer, existing=existing)
-        for note in parsed.notes:
-            console.print(f"  · {note}", markup=False)
-        if parsed.names:
-            draft.names[pid] = parsed.names
-            console.print("  → " + ", ".join(f"{pid}/{n}" for n in parsed.names), markup=False)
+            answer = BACK
         else:
-            draft.names.pop(pid, None)
+            platforms = list(dict.fromkeys(p for _, p in per_platform))
+            _header(console, repo, req, 3, f"({platforms.index(pid) + 1}/{len(platforms)}) {pid}")
+            existing = repo.existing(pid)
+            if kind == "languages":
+                chosen = (set(existing) - set(req.remove.get(pid, []))) | set(req.add.get(pid, []))
+                needed = pid not in have or any(pid in PLATFORM[q].requires for q in req.platforms or [])
+                answer = prompter.checkbox(f"{pid}: 코드를 생성할 언어 (proto/dist/<언어>/, 해제하면 삭제)", [
+                    Item(l.id, f"{l.id:<8} {l.label}" + ("  설치됨" if l.id in existing else ""), l.id in chosen)
+                    for l in LANGUAGES
+                ], minimum=1 if needed else 0)
+                if answer is not BACK:
+                    _set(req, pid, add=[l for l in answer if l not in existing],
+                         remove=[l for l in existing if l not in answer])
+            elif kind == "services":
+                keep = [s for s in existing if s not in req.remove.get(pid, [])]
+                answer = prompter.checkbox(f"{pid} 서비스 (해제하면 폴더까지 삭제)",
+                                           [Item(s, s, s in keep) for s in existing])
+                if answer is not BACK:
+                    _set(req, pid, remove=[s for s in existing if s not in answer])
+            elif kind == "names":
+                def check(raw: str, pid=pid, existing=existing) -> str | None:
+                    names, errors, _ = check_units(pid, raw, existing)
+                    if errors:
+                        return "; ".join(errors)
+                    if pid not in have and not names:
+                        return "새 플랫폼은 서비스가 최소 1개 필요합니다"
+                    return None
 
-        i += 1
-    return BACK if i < 0 else None
+                answer = prompter.text(f"{pid} 새 서비스 이름 (공백 또는 , 로 구분, 없으면 enter):",
+                                       default=", ".join(req.add.get(pid, [])), check=check)
+                if answer is not BACK:
+                    names, _, notes = check_units(pid, answer, existing)
+                    for note in notes:
+                        console.print(f"  · {note}", markup=False)
+                    _set(req, pid, add=names)
+                    if names:
+                        console.print("  → " + ", ".join(f"{pid}/{n}" for n in names), markup=False)
+                    if pid in have and not names and not [s for s in existing if s not in req.remove.get(pid, [])]:
+                        console.print(f"  → {pid} 에 서비스가 남지 않아 플랫폼이 삭제됩니다", markup=False)
+            else:  # options
+                answer = prompter.checkbox(f"{pid}: 옵션", [Item(
+                    "secrets", f"secrets   tools/secrets/{pid}/<service>/.env.* (끄면 그 폴더 삭제)",
+                    secrets_wanted(req, repo, pid))])
+                if answer is not BACK:
+                    req.secrets[pid] = "secrets" in answer
+        i = i - 1 if answer is BACK else i + 1
