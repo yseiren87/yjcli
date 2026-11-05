@@ -1,6 +1,6 @@
 [project]
 name = "yjcli"
-version = "0.6.0"
+version = "0.6.1"
 description = "Wizard that scaffolds YJ architecture repos: platforms, services, tooling plugins, and AI agent wiring (Cursor/Claude/Codex)."
 readme = "README.md"
 requires-python = ">=3.12"

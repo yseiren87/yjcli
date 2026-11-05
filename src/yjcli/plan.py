@@ -119,6 +119,7 @@ def _context(cfg: Config, repo_name: str) -> dict:
         "platform_roots": "\n".join(f"{p + '/':<22}# {', '.join(PLATFORM[p].skills)}" for p in platforms),
         "skill_routes": t.table(("Path", "Platform skill"), routes_for(platforms)),
         "plugins": "\n\n".join(fragments) or NO_TOOLING,
+        "tooling": bool(cfg.plugins),
         "platforms": " ".join(services),
         "env_kinds": _env_kinds(platforms),
         "service_list": "\n".join(f"- `{p}/`: " + ", ".join(f"`{s}`" for s in cfg.units[p]) for p in services)

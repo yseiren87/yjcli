@@ -56,6 +56,12 @@ Reduce AI cost and blast radius. Do not reinterpret the whole repo, add wrappers
 
 {{/if}}
 {{plugins}}
+{{#if tooling}}
+
+### Script input (every tool)
+
+- If a tool script needs answers from the user, follow the User input rule in its `GUIDE.md`: checks first, ask everything up front and keep the answers in variables, show the plan, confirm once, then run with no further prompts (arguments before prompts; never prompt when stdin is not a terminal).
+{{/if}}
 
 ## Skill routing
 

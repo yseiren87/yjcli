@@ -6,6 +6,10 @@
 # This is the entry point `make.ps1 {{platform}}-build-<env>` calls. It does not
 # have to stay a single file: add helper scripts next to it and call them from here.
 #
+# User input (see GUIDE.md): if this script ever needs answers from the user, run the
+# checks first, ask everything up front, show the plan, confirm once, then run with no
+# further prompts. Arguments come before prompts; never prompt when stdin is not a terminal.
+#
 # Usage: tools/builder/{{platform}}/builder.ps1 <environment> [service]
 param(
     [string]$Environment = "",
