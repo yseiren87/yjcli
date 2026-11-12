@@ -5,10 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "vite --mode local-dev",
-    "start:development": "vite --mode development",
-    "start:production": "vite --mode production",
-    "build:development": "tsc -b && vite build --mode development",
-    "build:production": "tsc -b && vite build --mode production",
+    __ENV_SCRIPTS__
     "preview": "vite preview"
   },
   "dependencies": {

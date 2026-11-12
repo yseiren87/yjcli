@@ -2,8 +2,8 @@
 
 A `Request` collects answers from arguments and the wizard (any may be missing).
 `resolve()` turns it into a complete target `Config` — LLMs, plugins, every
-platform's units (services, or languages for proto) and the secrets option —
-or returns every rule it breaks at once.
+platform's units (services, or languages for proto), the secrets option and the
+added environments — or returns every rule it breaks at once.
 """
 
 from __future__ import annotations
@@ -12,7 +12,8 @@ import re
 from dataclasses import dataclass, field
 
 from yjcli.catalog import (
-    LANGUAGE, LLM, PLATFORM, PLATFORMS, PLUGIN, SERVICE_PLATFORMS, catalog_order, plugins_lacking, with_required,
+    FIXED_ENVS, LANGUAGE, LLM, PLATFORM, PLATFORMS, PLUGIN, SERVICE_PLATFORMS, catalog_order, plugins_lacking,
+    with_required,
 )
 from yjcli.repo import Repo
 
@@ -27,7 +28,9 @@ class Request:
     add: dict[str, list[str]] = field(default_factory=dict)  # platform -> units to add
     remove: dict[str, list[str]] = field(default_factory=dict)  # platform -> units to remove
     secrets: dict[str, bool] = field(default_factory=dict)  # chosen now; others keep the stored value
-    answered: set[str] = field(default_factory=set)  # steps given as arguments: llms, platforms, plugins, secrets, units:<p>
+    envs_add: list[str] = field(default_factory=list)  # environments beside local-dev / production
+    envs_remove: list[str] = field(default_factory=list)
+    answered: set[str] = field(default_factory=set)  # given as arguments: llms, platforms, plugins, secrets, envs, units:<p>
     code_removal_ok: bool = False  # set by remove commands and the wizard's confirmation
     notes: list[str] = field(default_factory=list)
 
@@ -38,6 +41,7 @@ class Config:
     plugins: list[str]
     units: dict[str, list[str]]  # selected platform -> units, catalog order
     secrets: list[str]  # platforms whose services get tools/secrets/
+    environments: list[str] = field(default_factory=list)  # added environments (FIXED_ENVS always exist)
 
     @property
     def platforms(self) -> list[str]:
@@ -100,6 +104,21 @@ def check_units(pid: str, text: str, existing) -> tuple[list[str], list[str], li
     return names, errors, notes
 
 
+def check_envs(text: str, existing) -> tuple[list[str], list[str], list[str]]:
+    """Environment names in `text` -> (names to add, errors, notes)."""
+    names, errors, notes = [], [], []
+    for token in dict.fromkeys(split([text]) or []):
+        if not NAME.match(token):
+            errors.append(f"'{token}': 영문/숫자/_/- 만 쓸 수 있고 - 로 시작할 수 없습니다")
+        elif token in FIXED_ENVS:
+            notes.append(f"환경 {token}: 항상 만들어집니다 (변경 없음)")
+        elif token in existing:
+            notes.append(f"환경 {token}: 이미 있음 (변경 없음)")
+        else:
+            names.append(token)
+    return names, errors, notes
+
+
 def add_units(req: Request, repo: Repo, pid: str, text: str, errors: list[str], flag: str) -> None:
     names, errs, notes = check_units(pid, text, repo.existing(pid))
     errors += [f"{flag}: {e}" for e in errs]
@@ -138,7 +157,8 @@ def stored_config(repo: Repo) -> Config | None:
     if not m:
         return None
     units = {p: repo.existing(p) or list(m.units.get(p, [])) for p in repo.platforms()}
-    return Config(list(m.llms), list(m.plugins), units, [p for p in units if stored_secrets(repo, p)])
+    return Config(list(m.llms), list(m.plugins), units, [p for p in units if stored_secrets(repo, p)],
+                  list(repo.environments))
 
 
 def fill_defaults(req: Request, repo: Repo) -> None:
@@ -207,7 +227,11 @@ def resolve(req: Request, repo: Repo) -> tuple[Config | None, list[str]]:
         errors.append("플랫폼은 최소 1개가 필요합니다")
     if errors:
         return None, list(dict.fromkeys(errors))
-    return Config(llms, plugins, units, [p for p in units if secrets_wanted(req, repo, p)]), []
+    secrets = [p for p in units if secrets_wanted(req, repo, p)]
+    if req.envs_add and not secrets:
+        return None, ["추가 환경은 tools/secrets/ 의 .env.<환경> 파일로 기록됩니다 — secrets 를 켠 플랫폼이 필요합니다"]
+    environments = sorted({*repo.environments, *req.envs_add} - set(req.envs_remove))
+    return Config(llms, plugins, units, secrets, environments), []
 
 
 def service_platforms() -> list[str]:

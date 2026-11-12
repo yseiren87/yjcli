@@ -61,11 +61,11 @@ function Invoke-DeployOne([string]$Name) {
 }
 # -----------------------------------------------------------------------------
 
-# Any environment name: development and production come with every service; add more
-# (staging, test, ...) by creating tools\secrets\<platform>\<service>\.env.<name>.
+# Any environment name: production comes with every service; add more (staging, test, ...)
+# with `yjcli env add <name>` (tools\secrets\<platform>\<service>\.env.<name>).
 # local-dev is for local runs (tools/runner) only.
 if (-not $Environment -or $Environment -eq "local-dev" -or $Environment -notmatch '^[A-Za-z0-9_-]+$') {
-    Write-Host "usage: deployer.ps1 <environment> [service]   (development, production, staging, ...)"
+    Write-Host "usage: deployer.ps1 <environment> [service]   (production, staging, ...)"
     exit 1
 }
 

@@ -96,6 +96,11 @@ PLATFORMS: tuple[Platform, ...] = (
 PLATFORM = {p.id: p for p in PLATFORMS}
 SERVICE_PLATFORMS = tuple(p.id for p in PLATFORMS if not p.contract)
 
+# Environments every service with tools/secrets/ has; others are added by name
+# (`.env.<env>`, any name) and found on disk.
+FIXED_ENVS = ("local-dev", "production")
+LOCAL_ENV = "local-dev"
+
 
 def catalog_order(ids, known=PLATFORM) -> list[str]:
     wanted = set(ids)

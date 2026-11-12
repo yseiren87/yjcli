@@ -4,8 +4,9 @@ description: >-
   Repository architecture constitution for this monorepo. Use on every coding,
   review, or refactor task. Enforces fixed platform roots, the env field
   contract, universal entry/flow/domain/view/infra roles (domain = owned
-  concept, persistence optional), acyclic imports, and minimal edit scope.
-  Always apply together with exactly one matching yj-* platform skill for the
+  concept, persistence optional), acyclic imports, minimal edit scope, and
+  rewrite-first changes (no backward compatibility unless AGENTS.md or the
+  user says so). Always apply together with exactly one matching yj-* platform skill for the
   folder being edited.
 ---
 
@@ -17,7 +18,19 @@ Reduce AI cost and blast radius. Do not reinterpret the whole repo, add wrappers
 
 1. Existing repo conventions win when clearer than this skill.
 2. Identify the platform root folder first, then load **only** that platform skill.
-3. Edit the smallest file set that owns the change.
+3. Edit the smallest file set that owns the change — within that set, rewrite rather than patch (see Changes and compatibility).
+
+## Changes and compatibility
+
+Applies when a task changes or removes existing behavior (rename, removed field or env variable, changed format, replaced flow). Pure additions are not affected.
+
+- **Default: no backward compatibility.** Delete the old behavior and rewrite the feature compactly as if the new design had always been there; update every caller, test, `.env.examples` entry and env value file in the same change. No fallbacks, dual paths, deprecated aliases, shims or "old or new" branches. Example: when env variable `AAA` is dropped, remove `AAA` and every read of it — do not keep code that works both with and without `AAA`.
+- **Before implementing, settle the policy once per task.** Read the `Backward compatibility:` line under Project rules in `AGENTS.md`:
+  - `rewrite` — apply the default without asking.
+  - `keep` — keep the old behavior working next to the new one, without asking.
+  - `ask`, or no such line — ask the user once: "Keep backward compatibility? (default: no — rewrite)". No answer or "no" means rewrite.
+- **Rewrite stays inside the feature.** Do not touch unrelated features while rewriting one.
+- **Report outside impact.** When the change breaks something outside this repository's code — a database schema or stored data, a proto message, a public API, deployed clients — name it in the question (`ask`) or in the result (`rewrite`). Do not add compatibility code for it unless the answer was `keep`.
 
 ## Platform roots
 

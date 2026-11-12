@@ -50,7 +50,7 @@ Missing domain ≠ dump DTOs/utils into `main.tsx` / `App.tsx`. Keep feature wor
 ## Rules
 
 - Follow `yj-arch-core` env names; listen apps need `HOST`/`PORT`. No plain `.env`.
-- `npm start` / local mode must mean local-dev — do not silently point bare start at development/production deploy envs.
+- `npm start` / local mode must mean local-dev — do not silently point bare start at a deploy environment.
 - Store calls the same feature's `api`; pages/components do not call network directly.
 - Keep one store file per feature directly under `stores/`; do not add a redundant `{feature}/` directory for a single store file.
 - Container route wires store + router; presentational page takes props only.

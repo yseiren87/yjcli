@@ -16,11 +16,11 @@ from yjcli.ui.wizard import installed_label
 
 
 def plan_for(root: Path, *, llm=None, platform=None, plugin=None, name=None, proto_lang=None, secrets=None,
-             remove=None):
+             env=None, remove=None):
     """The plan `yjcli wizard <args>` would make (plus unit removals)."""
     repo = read_repo(root)
     req, errors = Request(), []
-    _wizard_collect(llm, platform, plugin, name, proto_lang, secrets)(req, repo, errors)
+    _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env)(req, repo, errors)
     assert errors == [], errors
     req.remove.update(remove or {})
     fill_defaults(req, repo)
@@ -61,6 +61,8 @@ class CreateTests(unittest.TestCase):
             self.assertNotIn("gen_dart()", gen)
             self.assertIn("PLATFORMS := backend-msa frontend", (root / "Makefile").read_text())
             self.assertIn("!proto/dist/", (root / ".gitignore").read_text())
+            self.assertIn("- Backward compatibility: `ask`", (root / "AGENTS.md").read_text())
+            self.assertIn("## Changes and compatibility", (root / ".claude/skills/yj-arch-core/SKILL.md").read_text())
             for f in root.rglob("*"):
                 if f.is_file() and f.suffix in (".md", ".sh", ".ps1", "") and ".yjcli" not in f.parts:
                     self.assertNotIn("{{", f.read_text(errors="replace"), f)
@@ -77,6 +79,75 @@ class CreateTests(unittest.TestCase):
             self.assertNotIn("!tools/secrets/", (root / ".gitignore").read_text())
 
 
+class EnvironmentTests(unittest.TestCase):
+    def envs(self, root: Path, service: str = "backend/a1") -> list[str]:
+        return sorted(f.name for f in (root / "tools/secrets" / service).glob(".env.*"))
+
+    def test_fixed_and_added_at_creation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1", "frontend=f1"], plugin=["builder"], env=["development, stage"])
+            self.assertEqual(self.envs(root), [".env.development", ".env.local-dev", ".env.production", ".env.stage"])
+            self.assertIn("127.0.0.1", (root / "tools/secrets/backend/a1/.env.local-dev").read_text())
+            self.assertIn("0.0.0.0", (root / "tools/secrets/backend/a1/.env.stage").read_text())
+            package = (root / "frontend/f1/package.json").read_text()
+            self.assertIn('"build:stage": "tsc -b && vite build --mode stage",', package)
+            self.assertNotIn("__ENV_SCRIPTS__", package)
+            self.assertIn("production | development | stage", (root / "Makefile").read_text())
+            self.assertEqual(plan_for(root).file_changes, [])
+
+    def test_default_is_local_dev_and_production(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1"], plugin=["none"])
+            self.assertEqual(self.envs(root), [".env.local-dev", ".env.production"])
+
+    def test_new_services_follow_added_environments(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1"], plugin=["none"])
+            (root / "tools/secrets/backend/a1/.env.development").write_text("NAME=a1\n")  # a 0.6 repository
+            run(root, name=["backend=a2"])
+            self.assertEqual(self.envs(root, "backend/a2"), [".env.development", ".env.local-dev", ".env.production"])
+            self.assertEqual((root / "tools/secrets/backend/a1/.env.development").read_text(), "NAME=a1\n")
+
+    def test_add_and_remove(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1,a2"], plugin=["none"])
+            repo = read_repo(root)
+            req = Request(envs_add=["stage"])
+            fill_defaults(req, repo)
+            cfg, _ = resolve(req, repo)
+            apply(build_plan(cfg, repo, version="9.9.9"), root)
+            self.assertIn(".env.stage", self.envs(root, "backend/a2"))
+            self.assertIn("tools/secrets/backend/a2/.env.stage", read_repo(root).manifest.files)
+
+            repo = read_repo(root)
+            req = Request(envs_remove=["stage"])
+            fill_defaults(req, repo)
+            cfg, _ = resolve(req, repo)
+            plan = build_plan(cfg, repo, version="9.9.9")
+            self.assertEqual({(c.kind, c.path) for c in plan.changes if c.kind == "delete"},
+                             {("delete", f"tools/secrets/backend/{s}/.env.stage") for s in ("a1", "a2")})
+            self.assertFalse(plan.removes_code)
+            apply(plan, root)
+            self.assertEqual(self.envs(root, "backend/a2"), [".env.local-dev", ".env.production"])
+            self.assertFalse(any(".env.stage" in rel for rel in read_repo(root).manifest.files))
+
+    def test_hand_deleted_environment_leaves_the_manifest(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1,a2"], plugin=["none"], env=["stage"])
+            (root / "tools/secrets/backend/a1/.env.stage").unlink()
+            run(root)  # partly deleted: remembered as an opt-out
+            self.assertNotIn(".env.stage", self.envs(root))
+            self.assertIn("tools/secrets/backend/a1/.env.stage", read_repo(root).manifest.files)
+            (root / "tools/secrets/backend/a2/.env.stage").unlink()
+            run(root)
+            self.assertFalse(any(".env.stage" in rel for rel in read_repo(root).manifest.files))
+
+
 class UpdateTests(unittest.TestCase):
     def test_local_edits_are_overwritten_and_reported(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -91,10 +162,28 @@ class UpdateTests(unittest.TestCase):
             plan = plan_for(root)
             notes = {c.path: c.note for c in plan.changes}
             self.assertEqual(notes["tools/runner/GUIDE.md"], "로컬 수정 덮어씀")
-            self.assertEqual(len(plan.review), 2)
+            self.assertEqual(len(plan.review), 3)  # GUIDE.md, the missing block, the edited blocks
             apply(plan, root)
             self.assertNotIn("tweak", guide.read_text())
             self.assertIn("<!-- yjcli:layout -->", agents.read_text())
+            backup = root / plan.backup
+            self.assertTrue((backup / "tools/runner/GUIDE.md").read_text().endswith("tweak\n"))
+            self.assertNotIn("<!-- yjcli:layout -->", (backup / "AGENTS.md").read_text())
+            guide_text = (backup / "MERGE.md").read_text()
+            self.assertIn("| `tools/runner/GUIDE.md` |", guide_text)
+            self.assertNotIn("{{", guide_text)
+            self.assertIn("/.yjcli/backup/", (root / ".gitignore").read_text())
+
+    def test_untouched_blocks_are_not_backed_up(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude"], name=["backend=a1"], plugin=["runner"])
+            agents = root / "AGENTS.md"
+            agents.write_text(agents.read_text().replace("- `<rule>`", "- my rule"))  # outside the blocks
+            plan = run(root, name=["frontend=f1"])
+            self.assertIn("AGENTS.md", [c.path for c in plan.changes if c.kind == "merge"])
+            self.assertEqual([c.path for c in plan.changes if c.kind == "backup"], [])
+            self.assertFalse((root / ".yjcli/backup").exists())
 
     def test_seeds_stay_and_opt_outs_are_remembered(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -208,6 +297,7 @@ class ReferenceTests(unittest.TestCase):
             found = stale_references(root, ["claude"], [], ["backend"])
             self.assertEqual(len(found), 2)
             self.assertIn("AGENTS.md:4", found[0])
+            self.assertIn("AGENTS.md:5", found[1])
 
 
 if __name__ == "__main__":

@@ -181,8 +181,10 @@ def _(c: Case):
     c.has("backend/a1/apps", "backend/a1/domains", "backend/a2/.env.examples", "tools/secrets/backend/a1/.env.local-dev",
           "tools/secrets/backend/a2/.env.production", "AGENTS.md", "CLAUDE.md", ".claude/settings.json",
           ".claude/skills/yj-arch-core/SKILL.md", ".claude/skills/yj-backend/SKILL.md", ".gitignore", ".yjcli/manifest.toml")
-    c.hasnt("Makefile", "make.ps1", "tools/runner", ".cursor")
+    c.hasnt("Makefile", "make.ps1", "tools/runner", ".cursor", "tools/secrets/backend/a1/.env.development")
     c.contains("tools/secrets/backend/a1/.env.local-dev", "NAME=a1", "PORT=8080")
+    c.contains("AGENTS.md", "- Backward compatibility: `ask`")
+    c.contains(".claude/skills/yj-arch-core/SKILL.md", "## Changes and compatibility")
     c.contains("CLAUDE.md", "@AGENTS.md")
     c.contains("AGENTS.md", "<!-- yjcli:rules -->", "<!-- yjcli:skills -->", "<!-- yjcli:layout -->", "`backend/**`")
     c.contains(".gitignore", "# >>> yjcli:managed", "!tools/secrets/**", "/dist/")
@@ -245,7 +247,7 @@ def _(c: Case):
 
 @case("13-create-tools-run", "생성: runner·builder·deployer 스크립트가 실제로 동작 (동시 실행, env, dist, BUILD_INFO)")
 def _(c: Case):
-    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "--plugin", "all", "-y")
+    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "--plugin", "all", "--env", "development", "-y")
     c.implement("tools/runner/backend/runner.sh", "run_one", '  echo "hello from $NAME on $PORT"')
     out = c.sh("make backend")
     c.says(out, "[a1] hello from a1 on 8080", "[a2] hello from a2 on 8080")
@@ -300,7 +302,7 @@ def _(c: Case):
     c.contains(".claude/skills/yj-arch-core/SKILL.md", "does not use `tools/secrets/`")
 
 
-@case("15-create-wizard", "생성: 대화형 마법사 (← 로 되돌아가기, 의존성 자동 체크, 옵션)")
+@case("15-create-wizard", "생성: 대화형 마법사 (← 로 되돌아가기, 의존성 자동 체크, 추가 환경, 옵션)")
 def _(c: Case):
     out = c.keys("wizard",
                  " " + DOWN + " \r",       # LLM: cursor + claude
@@ -309,6 +311,8 @@ def _(c: Case):
                  LEFT,                     # plugins: ← back to platforms
                  "\r",                     # platforms: keep
                  DOWN + " \r",             # plugins: runner (default) + builder
+                 "bad/env\r",              # environments: invalid → refused, stays
+                 "\x7f" * 7 + "development, stage, production\r",  # environments (production: always made)
                  "a1, a2\r",               # backend names
                  LEFT,                     # backend options: ← back to names
                  "\r",                     # backend names: keep
@@ -321,6 +325,11 @@ def _(c: Case):
     c.has("backend/a1/apps", "backend/a2/apps", "frontend/f1/package.json", ".cursor/skills/yj-backend/SKILL.md",
           ".claude/skills/yj-frontend/SKILL.md", "tools/builder/frontend/builder.sh", "tools/secrets/frontend/f1/.env.local-dev")
     c.hasnt("tools/secrets/backend", "tools/deployer")
+    c.has("tools/secrets/frontend/f1/.env.production", "tools/secrets/frontend/f1/.env.development",
+          "tools/secrets/frontend/f1/.env.stage")
+    c.says(out, "환경 production: 항상 만들어집니다")
+    c.contains("frontend/f1/package.json", '"build:stage"', '"start:development"')
+    c.contains("Makefile", "production | development | stage")
     c.contains(".yjcli/manifest.toml", 'llms = ["cursor", "claude"]', 'plugins = ["runner", "builder"]', "secrets = false")
 
 
@@ -329,7 +338,7 @@ def _(c: Case):
     if not shutil.which("pwsh"):
         c.check(True, "")
         return
-    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "--plugin", "all", "-y")
+    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "--plugin", "all", "--env", "development", "-y")
     ps = lambda *a, expect=0: c._run(["pwsh", "-NoProfile", "-File", "make.ps1", *a], expect, c.dir, "make.ps1 " + " ".join(a))
     c.implement("tools/runner/backend/runner.ps1", "Invoke-RunOne", '    Write-Output "hello from $env:NAME"')
     c.says(ps("backend"), "[a1] hello from a1", "[a2] hello from a2")
@@ -402,10 +411,41 @@ def _(c: Case):
     c.contains(".yjcli/manifest.toml", 'services = ["a1", "b3"]', "secrets = false")
 
 
+@case("22-add-environments", "추가·삭제: env add / remove 는 모든 서비스의 .env.<환경>, 고정 환경·--env 는 새 저장소만")
+def _(c: Case):
+    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "--plugin", "builder", "--env", "development", "-y")
+    c.has("tools/secrets/backend/a2/.env.development")
+    c.says(c.yjcli("wizard", "--env", "stage", "-y", expect=1), "--env 는 새 저장소에서만")
+    out = c.yjcli("env", "add", "stage", "qa", "development", "-y")
+    c.says(out, "환경 development: 이미 있음", "(+ qa, stage)")
+    c.has("tools/secrets/backend/a1/.env.stage", "tools/secrets/backend/a2/.env.qa")
+    c.contains("tools/secrets/backend/a1/.env.stage", "HOST=0.0.0.0")
+    c.contains("Makefile", "production | development | qa | stage")
+    c.says(c.yjcli("status"), "환경: local-dev, production, development, qa, stage")
+    c.implement("tools/builder/backend/builder.sh", "build_one", '  echo "$ENVIRONMENT" > "$OUT/app"; test -f "$ENV_FILE"')
+    c.sh("make backend-build-qa NAME=a1")
+    c.contains("dist/backend/a1/app", "qa")
+
+    c.says(c.yjcli("env", "remove", "production", "-y", expect=1), "항상 있는 환경이라 지울 수 없습니다")
+    c.says(c.yjcli("env", "remove", "nope", "-y", expect=1), "없는 환경입니다")
+    c.says(c.yjcli("env", "add", "bad/x", "-y", expect=1), "영문/숫자")
+    out = c.yjcli("env", "remove", "qa", "development", "-y")
+    c.says(out, "(- development, qa)")
+    c.hasnt("tools/secrets/backend/a1/.env.qa", "tools/secrets/backend/a2/.env.development")
+    c.lacks(".yjcli/manifest.toml", ".env.qa", ".env.development")
+    c.has("tools/secrets/backend/a1/.env.stage", "tools/secrets/backend/a1/.env.production")
+
+    c.sh("rm tools/secrets/backend/*/.env.stage")  # deleted by hand: gone from the manifest too
+    c.yjcli("update", "-y")
+    c.lacks(".yjcli/manifest.toml", ".env.stage")
+    c.lacks("Makefile", "stage")
+    c.quiet(c.yjcli("update", "-y"))
+
+
 # ============================================================== 3x update
 
 
-@case("30-update-refresh", "업데이트: 관리 파일은 로컬 수정까지 덮어쓰고 보고, 블록만 갱신, seed 는 그대로")
+@case("30-update-refresh", "업데이트: 관리 파일은 로컬 수정까지 덮어쓰고 보고·백업(MERGE.md), 블록만 갱신, seed 는 그대로")
 def _(c: Case):
     c.yjcli("wizard", "-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
     c.write("tools/runner/GUIDE.md", c.text("tools/runner/GUIDE.md") + "\nlocal tweak\n")
@@ -429,6 +469,12 @@ def _(c: Case):
     c.contains("AGENTS.md", "- Name: `shop`", "my layout notes", "<!-- yjcli:layout -->")
     c.contains(".gitignore", "my-local/", "# >>> yjcli:managed")
     c.contains("tools/runner/backend/runner.sh", "exec mine")
+    c.says(out, "* 백업 2개", "MERGE.md 대로 병합해줘")
+    c.says(c.sh("cat .yjcli/backup/*/tools/runner/GUIDE.md"), "local tweak")
+    c.says(c.sh("cat .yjcli/backup/*/AGENTS.md"), "my layout notes")
+    c.says(c.sh("cat .yjcli/backup/*/MERGE.md"), "| `tools/runner/GUIDE.md` |", "| `AGENTS.md` |", "Delete this folder")
+    c.says(c.sh("ls .yjcli/backup/*/.claude/skills 2>&1 || true"), "No such file")  # an unedited old skill
+    c.says(c.sh("git init -q && git status --porcelain --ignored .yjcli"), "!! .yjcli/backup/")
     c.quiet(c.yjcli("update", "-y"))
 
 

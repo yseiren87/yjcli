@@ -20,10 +20,11 @@ _START = r"(?<![\w./-])"  # not in the middle of another path or word
 def _patterns(llms, plugins, platforms, gone: dict[str, list[str]]) -> list[tuple[re.Pattern, str]]:
     rules: list[tuple[str, str]] = []
     rules += [(_START + rf"tools/{p.id}\b", f"{p.id} 플러그인이 없음") for p in PLUGINS if p.id not in plugins]
+    names = "|".join(re.escape(p.id) for p in PLATFORMS)
     if "builder" not in plugins:
-        rules.append((r"\b[\w-]+-build-(?:development|production)\b", "builder 플러그인이 없음"))
+        rules.append((rf"\b(?:{names})-build-[\w-]+", "builder 플러그인이 없음"))
     if "deployer" not in plugins:
-        rules.append((r"\b[\w-]+-deploy-(?:development|production)\b", "deployer 플러그인이 없음"))
+        rules.append((rf"\b(?:{names})-deploy-[\w-]+", "deployer 플러그인이 없음"))
     if "runner" not in plugins and platforms:
         rules.append((rf"\bmake (?:{'|'.join(map(re.escape, platforms))})(?![\w-])", "runner 플러그인이 없음"))
     rules += [(_START + re.escape(l.skills_dir), f"{l.label} 이(가) 선택되어 있지 않음") for l in LLMS if l.id not in llms]

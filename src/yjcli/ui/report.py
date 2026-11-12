@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from yjcli.catalog import PLATFORM
+from yjcli.catalog import FIXED_ENVS, PLATFORM
 from yjcli.plan import Plan
 from yjcli.selection import Config
 
@@ -55,6 +55,8 @@ def summary(console: Console, plan: Plan, *, details: bool = False, diff_root: P
     table.add_row("서비스", _with_diff(_units(cfg), _units(before)))
     if services := [p for p in cfg.platforms if not PLATFORM[p].contract]:
         table.add_row("secrets", ", ".join(f"{p} {'켬' if p in cfg.secrets else '끔'}" for p in services))
+        table.add_row("환경", _with_diff([*FIXED_ENVS, *cfg.environments],
+                                        [*FIXED_ENVS, *before.environments] if before else None))
     table.add_row("스킬(자동)", ", ".join(plan.skills))
     console.print(table)
     if table_only:
@@ -83,16 +85,21 @@ def result(console: Console, plan: Plan) -> None:
 
 
 def _changes(console: Console, plan: Plan, details: bool) -> None:
+    backups = plan.count("backup") - 1  # MERGE.md
     counts = (("+ 생성", plan.count("create", "mkdir")), ("~ 변경", plan.count("overwrite", "merge", "chmod")),
               ("= 보존", len(plan.kept)), ("- 삭제", plan.count("delete", "rmtree")))
     console.print("  " + "   ".join(f"{label} {n}개" for label, n in counts))
     # a new repository creates many files: list them only on request; every other run lists all changes
     for c in plan.file_changes:
+        if c.kind == "backup":
+            continue
         if details or not plan.new or c.kind not in ("create", "mkdir"):
             note = f" ({c.note})" if c.note and c.kind != "rmtree" else ""
             console.print(f"    {LABEL[c.kind]:<8} {c.path}{note}", markup=False)
     if not plan.new and not plan.file_changes:
         console.print("    바뀐 파일 없음", markup=False)
+    if backups:
+        console.print(f"  * 백업 {backups}개: 덮어쓰기 전 파일 → {plan.backup}/ · 병합: LLM 에게 \"{plan.backup}/MERGE.md 대로 병합해줘\"", markup=False)
 
 
 def _attention(console: Console, plan: Plan) -> None:
@@ -134,9 +141,9 @@ def next_steps(console: Console, plan: Plan) -> None:
         if "runner" in cfg.plugins:
             console.print(f"  실행: make {p} [NAME={s}]", markup=False)
         if "builder" in cfg.plugins:
-            console.print(f"  빌드: make {p}-build-development [NAME={s}]   → dist/{p}/{s}/", markup=False)
+            console.print(f"  빌드: make {p}-build-production [NAME={s}]   → dist/{p}/{s}/", markup=False)
         if "deployer" in cfg.plugins:
-            console.print(f"  배포: make {p}-deploy-development [NAME={s}]", markup=False)
+            console.print(f"  배포: make {p}-deploy-production [NAME={s}]", markup=False)
         console.print("  Windows: powershell -ExecutionPolicy Bypass -File make.ps1 <target> [NAME=<service>]", markup=False)
     elif not cfg.plugins:
         console.print("  도구 플러그인 없이 코드만 만들었습니다. 필요하면 yjcli plugin add 로 추가하세요.", markup=False)

@@ -43,15 +43,18 @@ yjcli wizard -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,bu
 | 1 | LLM targets | `-l/--llm cursor,claude,codex` · `all` | Multi-select (space toggles `[x]`) |
 | 2 | Platforms | `-p/--platform …` · `all` | Multi-select. On a configured repository, unchecking a platform removes it with its code (see Removing) |
 | 3 | Plugins | `--plugin runner,builder,deployer` · `all` · `none` | `deployer` can be checked only after `builder`; on the CLI it fails without `builder` |
-| 4 | Platform settings | `-n/--name <platform>=a1,a2` (repeatable) · `--secrets all\|none\|<platforms>` | One screen per platform: existing services as a checklist (uncheck = remove), new service names (split with spaces or commas; `-n` alone also selects the platform), then options — `secrets` creates `tools/secrets/<platform>/<service>/.env.*` (on by default) |
-| — | Proto languages | `--proto-lang go,dart,python` | The `proto` platform's screen in step 4 asks for languages instead of names; `--proto-lang` also selects `proto` |
-| 5 | Confirm | `-y/--yes` · `--dry-run` | Removals are listed at the top and the default choice is 취소. Non-interactive runs need `--yes` or `--dry-run` |
+| 4 | Environments (new repository only) | `--env development,stage` | Text input, split with spaces or commas. `local-dev` and `production` are always created; the names you type are added beside them (`.env.development`, `.env.stage`). Later: `yjcli env add` / `yjcli env remove` |
+| 5 | Platform settings | `-n/--name <platform>=a1,a2` (repeatable) · `--secrets all\|none\|<platforms>` | One screen per platform: existing services as a checklist (uncheck = remove), new service names (split with spaces or commas; `-n` alone also selects the platform), then options — `secrets` creates `tools/secrets/<platform>/<service>/.env.*` (on by default) |
+| — | Proto languages | `--proto-lang go,dart,python` | The `proto` platform's screen in step 5 asks for languages instead of names; `--proto-lang` also selects `proto` |
+| 6 | Confirm | `-y/--yes` · `--dry-run` | Removals are listed at the top and the default choice is 취소. Non-interactive runs need `--yes` or `--dry-run` |
 
 `←` goes back one screen. Skills are not asked for — they follow the platforms.
 
 ## Platforms
 
-Platforms hold **code only**: service folders, stack files and `.env.examples`. By default every service also gets its env values in `tools/secrets/<platform>/<service>/.env.{local-dev,development,production}` — **committed in plain text** (private repos only). This is a per-platform option (step 4, `--secrets`), not a plugin. A platform with it off gets no `tools/secrets/` folder, and its runner/builder/deployer scripts are generated without env file handling: the project supplies env values its own way.
+Platforms hold **code only**: service folders, stack files and `.env.examples`. By default every service also gets its env values in `tools/secrets/<platform>/<service>/.env.{local-dev,production}` plus the environments you added — **committed in plain text** (private repos only). This is a per-platform option (step 5, `--secrets`), not a plugin. A platform with it off gets no `tools/secrets/` folder, and its runner/builder/deployer scripts are generated without env file handling: the project supplies env values its own way.
+
+Environments are shared by every service with `tools/secrets/`: `local-dev` (local runs) and `production` always exist, and added ones (`yjcli env add staging`) create `.env.staging` for every such service at once. yjcli does not store the list: it reads the `.env.*` names found under `tools/secrets/`, so new services follow them, and an environment deleted by hand from every service is gone from the manifest too (deleted from some services only, it is not recreated there). `yjcli env remove staging` deletes every `.env.staging`.
 
 `--secrets` replaces the whole choice like `--plugin` (`--secrets frontend` turns it off for every other platform); without it the stored choice is kept and a new platform starts with it on. Turning it on creates the env files of every existing service of that platform. Turning it off deletes `tools/secrets/<platform>/`, values you filled in included (after confirmation). Scripts you already implemented are not rewritten — the result lists them under **to check**.
 
@@ -80,7 +83,7 @@ yjcli builds the structure, not your build logic. Each plugin installs a **`tool
 | `builder` | `make <platform>-build-<env> [NAME=…]`, `make proto-build [PROTO_LANG=…]` | `build_one` — build into `dist/<platform>/<service>/`; for `proto`, `gen_<language>` in `tools/builder/proto/builder.sh` | empties the output folder, writes `BUILD_INFO`, removes failed output; `backend-msa` builds run proto codegen first |
 | `deployer` (needs `builder`) | `make <platform>-deploy-<env> [NAME=…]` | `deploy_one` — ship `dist/<platform>/<service>/` | checks the build and env file exist, warns on environment mismatch; never builds |
 
-`<env>` is `development`, `production`, or any environment you add as `tools/secrets/<platform>/<service>/.env.<env>` (e.g. `staging`) for every service of the platform. On Windows use `make.ps1` with the same targets: `powershell -ExecutionPolicy Bypass -File make.ps1 <target> [NAME=<service>]`. Builds contain no env files; Docker deployments inject them at run time with `docker run --env-file tools/secrets/<platform>/<service>/.env.<env>`.
+`<env>` is `production` or any environment added with `yjcli env add <env>` (e.g. `staging`); `make help` lists them. On Windows use `make.ps1` with the same targets: `powershell -ExecutionPolicy Bypass -File make.ps1 <target> [NAME=<service>]`. Builds contain no env files; Docker deployments inject them at run time with `docker run --env-file tools/secrets/<platform>/<service>/.env.<env>`.
 
 ## Updating
 
@@ -94,7 +97,9 @@ yjcli status            # tells you a newer yjcli is installed
 yjcli update --diff     # review what changes, then confirm (or -y)
 ```
 
-`yjcli update` keeps your selection and only re-renders what yjcli owns; interactively it shows three steps — status (local edits that will be overwritten, and where to move them), changes by kind, confirm — and prints "최신 상태입니다" when there is nothing to do. A yjcli that is **older** than the one that last wrote `.yjcli/manifest.toml` refuses to run (so teammates on old versions cannot roll files back); `--force` overrides.
+`yjcli update` keeps your selection and only re-renders what yjcli owns; interactively it shows three steps — status (local edits that will be overwritten, and where to move them), changes by kind, confirm — and prints "최신 상태입니다" when there is nothing to do.
+
+Nothing with local edits is lost: before any run (update, wizard, add/remove) overwrites a managed file that was edited locally, or refreshes a block in `AGENTS.md` / `.gitignore` whose content was edited by hand, it copies the file to `.yjcli/backup/<time>/<path>` (git-ignored) and writes a `MERGE.md` there — the file list, where each kind of local edit belongs, and merge steps for a coding agent. Ask your agent to "merge `.yjcli/backup/<time>/` following its MERGE.md"; it moves the edits to places yjcli does not overwrite and deletes the folder. A yjcli that is **older** than the one that last wrote `.yjcli/manifest.toml` refuses to run (so teammates on old versions cannot roll files back); `--force` overrides.
 
 ### Change the selection
 
@@ -114,6 +119,8 @@ yjcli proto add python                     # add / remove proto languages
 yjcli proto remove dart
 yjcli secrets on backend                   # turn tools/secrets/ on / off per platform
 yjcli secrets off frontend
+yjcli env add development staging          # add environments (.env.<env> for every service with tools/secrets/)
+yjcli env remove staging                   # delete .env.staging everywhere (local-dev / production stay)
 yjcli wizard --plugin runner,builder -y    # replace the whole plugin list (other steps unchanged)
 yjcli plan --diff                          # show the plan only
 ```
@@ -124,7 +131,7 @@ yjcli plan --diff                          # show the plan only
 
 | File kind | On update |
 |-----------|-----------|
-| managed (skills, `CLAUDE.md`, `tools/*/GUIDE.md`, `Makefile`, `make.ps1`) | always refreshed; a local edit is overwritten and listed under **to check** (a same-named file yjcli never wrote is skipped unless `--force`) |
+| managed (skills, `CLAUDE.md`, `tools/*/GUIDE.md`, `Makefile`, `make.ps1`) | always refreshed; a local edit is backed up to `.yjcli/backup/<time>/`, overwritten and listed under **to check** (a same-named file yjcli never wrote is skipped unless `--force`) |
 | blocks (`AGENTS.md` `<!-- yjcli:rules/skills/layout -->`, `.gitignore` `# >>> yjcli:managed`) | only the block is regenerated; everything outside is yours (a block whose markers were removed is appended again at the end) |
 | seed (`AGENTS.md` body, env files, `tools/*/<platform>/*.{sh,ps1}`, settings) | created once (when its owner is new, or when a newer yjcli adds it); yours afterwards — deleting one opts out. When its starting template changes, it is left as is and listed under **to check** |
 
@@ -133,6 +140,8 @@ Tool scripts follow their `tools/<tool>/GUIDE.md`: the guide is the contract and
 A run never stops halfway: it applies everything, then prints one result — every created, changed and deleted file, followed by **to check** (overwritten local edits, changed seed templates, re-added blocks, warnings).
 
 Customize a skill without losing updates: write the extra rules in `.yjcli/skills/<skill>.md` (e.g. `.yjcli/skills/yj-backend.md`). yjcli appends them to that skill for every LLM on each render. Put project-wide agent rules under `### Project rules` in AGENTS.md (outside the blocks).
+
+Backward compatibility: skill `yj-arch-core` makes agents rewrite a changed feature without keeping the old behavior (no fallbacks or dual support) and ask once per task whether to keep compatibility instead. The `- Backward compatibility: ask` line under `### Project rules` in AGENTS.md answers that question for the project: `ask` (ask every task), `rewrite` (never ask, drop the old behavior) or `keep` (never ask, keep it working). Repositories created before this line existed behave as `ask` until you add it.
 
 ### Removing
 

@@ -4,33 +4,36 @@ The plan has three parts:
   * desired files — code (created once), agent wiring, env values, plugin files,
     each with an ownership policy (managed / seed / merge / code)
   * removals     — folders that belong to what the config dropped, removed whole
+  * backups      — the current copy of every file about to lose local edits,
+                   under `.yjcli/backup/<time>/` (git-ignored) for comparing later
   * the manifest — written last by apply
 """
 
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from yjcli import template as t
 from yjcli.catalog import (
-    BLOCK, CODE, CORE_SKILL, DATA, LANGUAGE, LANGUAGES, LLM, LLMS, MANAGED, PLATFORM, PLATFORMS, PLUGINS, PROTO, SEED,
-    SKILL, routes_for, skills_for,
+    BLOCK, CODE, CORE_SKILL, DATA, FIXED_ENVS, LANGUAGE, LANGUAGES, LLM, LLMS, LOCAL_ENV, MANAGED, PLATFORM, PLATFORMS,
+    PLUGINS, PROTO, SEED, SKILL, routes_for, skills_for,
 )
 from yjcli.references import stale_references
 from yjcli.repo import MANIFEST, Manifest, Record, Repo, dump_manifest, sha256
 from yjcli.selection import Config, stored_config
 
-ENVS = ("local-dev", "development", "production")
 ADDITIONS = ".yjcli/skills"
+BACKUP = ".yjcli/backup"
 NO_TOOLING = ("No run/build/deploy tooling is installed: this repository holds code (and env values, where enabled) only. "
               "Do not add run/build/deploy scripts or Makefiles unless the user asks.")
 
 
 @dataclass
 class Change:
-    kind: str  # create | overwrite | merge | chmod | delete | rmtree | mkdir
+    kind: str  # create | overwrite | merge | chmod | delete | rmtree | mkdir | backup (a create under BACKUP)
     path: str
     content: bytes | None = None
     executable: bool = False
@@ -60,6 +63,7 @@ class Plan:
     review: list[str] = field(default_factory=list)  # to check after applying
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    backup: str = ""  # folder for this run's backups
 
     def count(self, *kinds: str) -> int:
         return sum(1 for c in self.changes if c.kind in kinds)
@@ -71,6 +75,9 @@ class Plan:
     @property
     def removes_code(self) -> bool:
         return any(r.code for r in self.removals)
+
+    def back_up(self, rel: str, content: bytes) -> None:
+        self.changes.append(Change("backup", f"{self.backup}/{rel}", content))
 
 
 @dataclass
@@ -110,6 +117,18 @@ def _env_kinds(platforms: list[str]) -> str:
     return "\n".join(f"  - `{kind}`: {', '.join(names)}" for kind, names in kinds.items())
 
 
+def _deploy_envs(cfg: Config) -> list[str]:
+    return [e for e in (*FIXED_ENVS, *cfg.environments) if e != LOCAL_ENV]
+
+
+def _env_scripts(cfg: Config) -> str:
+    """package.json scripts for every deploy environment (`start` itself is local-dev)."""
+    envs = _deploy_envs(cfg)
+    lines = [f'"start:{e}": "vite --mode {e}",' for e in envs]
+    lines += [f'"build:{e}": "tsc -b && vite build --mode {e}",' for e in envs]
+    return "\n    ".join(lines)
+
+
 def _context(cfg: Config, repo_name: str) -> dict:
     platforms = cfg.platforms
     services = [p for p in platforms if not PLATFORM[p].contract]
@@ -122,6 +141,7 @@ def _context(cfg: Config, repo_name: str) -> dict:
         "tooling": bool(cfg.plugins),
         "platforms": " ".join(services),
         "env_kinds": _env_kinds(platforms),
+        "environments": " | ".join(_deploy_envs(cfg)),
         "service_list": "\n".join(f"- `{p}/`: " + ", ".join(f"`{s}`" for s in cfg.units[p]) for p in services)
                         or "- (none yet)",
         "proto_languages": ", ".join(f"`{l}`" for l in cfg.units.get(PROTO, [])) or "(none yet)",
@@ -181,6 +201,7 @@ def _gitignore_block(cfg: Config) -> str:
     lines += ["# Build output (tools/builder).", "/dist/"]
     if PROTO in cfg.units:
         lines += ["# Generated proto libraries are committed (consumed by path dependency).", "!proto/dist/"]
+    lines += ["# Copies of files yjcli overwrote (yjcli update); delete after review.", f"/{BACKUP}/"]
     return "\n".join(lines)
 
 
@@ -206,6 +227,7 @@ def _wanted(cfg: Config, before: Config | None, repo: Repo, plan: Plan) -> tuple
     old_plugins = set(before.plugins) if before else set()
     new_platforms = {p for p in cfg.platforms if not before or p not in before.units}
     switched_on = {p for p in cfg.secrets if before and p in before.units and p not in before.secrets}
+    new_envs = set(cfg.environments) - set(before.environments if before else [])
 
     # code: only new services and languages
     for pid, names in plan.added.items():
@@ -221,7 +243,7 @@ def _wanted(cfg: Config, before: Config | None, repo: Repo, plan: Plan) -> tuple
             files[f"{base}/.env.examples"] = _Want(
                 _read("templates", "platform", "envs", pf.env_kind_of(name), "env.examples").encode(), CODE)
             if not pf.variant(name):
-                tokens = {"__NAME__": name, "__PORT__": pf.port or ""}
+                tokens = {"__NAME__": name, "__PORT__": pf.port or "", "__ENV_SCRIPTS__": _env_scripts(cfg)}
                 if pf.stack:
                     for f in sorted((DATA / "templates" / "platform" / pf.stack).iterdir()):
                         files[f"{base}/{f.name}"] = _Want(t.substitute(f.read_text(encoding="utf-8"), tokens).encode(), CODE)
@@ -244,10 +266,11 @@ def _wanted(cfg: Config, before: Config | None, repo: Repo, plan: Plan) -> tuple
     for pid in cfg.secrets:
         pf = PLATFORM[pid]
         for s in cfg.units[pid]:
-            for env in ENVS:
+            for env in (*FIXED_ENVS, *cfg.environments):
                 tokens = {"__NAME__": s, "__PORT__": pf.port or ""}
-                content = t.substitute(_read("templates", "secrets", pf.env_kind_of(s), f"env.{env}"), tokens).encode()
-                fresh = s in plan.added.get(pid, []) or pid in switched_on or pid in new_platforms
+                source = "env.local-dev" if env == LOCAL_ENV else "env.deploy"
+                content = t.substitute(_read("templates", "secrets", pf.env_kind_of(s), source), tokens).encode()
+                fresh = s in plan.added.get(pid, []) or pid in switched_on or pid in new_platforms or env in new_envs
                 files[f"tools/secrets/{pid}/{s}/.env.{env}"] = _Want(content, SEED, introduce=fresh, template=sha256(content))
 
     # plugins
@@ -321,6 +344,10 @@ def _removals(cfg: Config, before: Config | None, repo: Repo, skills: list[str])
                            (f"dist/{pid}/{u}", why, False)]
         if pid in before.secrets and pid not in cfg.secrets:
             wanted.append((f"tools/secrets/{pid}", f"secrets 끔 ({pid})", False))
+    for env in before.environments:
+        if env not in cfg.environments:
+            wanted += [(f.relative_to(repo.root).as_posix(), f"환경 {env}", False)
+                       for f in sorted((repo.root / "tools" / "secrets").glob(f"*/*/.env.{env}"))]
 
     out: list[Removal] = []
     for path, why, code in wanted:
@@ -345,19 +372,21 @@ def build_plan(cfg: Config, repo: Repo, *, version: str, force: bool = False, no
     added = {p: [u for u in us if u not in repo.existing(p)] for p, us in cfg.units.items()}
     plan = Plan(new=m is None, config=cfg, before=before, skills=skills_for(cfg.platforms),
                 added={p: us for p, us in added.items() if us}, version=version,
-                previous=m.version if m else None, notes=list(notes or []))
+                previous=m.version if m else None, notes=list(notes or []),
+                backup=f"{BACKUP}/{datetime.now():%Y%m%d-%H%M%S}")
     plan.removals = _removals(cfg, before, repo, plan.skills)
     wanted, dirs = _wanted(cfg, before, repo, plan)
     root = repo.root
     old = dict(m.files) if m else {}
     records: dict[str, Record] = {}
 
-    plan.changes += [Change("rmtree", r.path, note=r.why) for r in plan.removals]
+    plan.changes += [Change("rmtree" if (root / r.path).is_dir() else "delete", r.path, note=r.why)
+                     for r in plan.removals]
     plan.changes += [Change("mkdir", d) for d in dirs if not (root / d).is_dir()]
     for rel, want in wanted.items():
         _compare(plan, root, rel, want, old.get(rel), records, force)
-    _agents(plan, root, cfg, records)
-    _gitignore(plan, root, cfg, records)
+    _agents(plan, root, cfg, records, old.get("AGENTS.md"))
+    _gitignore(plan, root, cfg, records, old.get(".gitignore"))
 
     # tracked files yjcli no longer wants, outside the removed folders
     dropped_llm_files = {path for l in (before.llms if before else []) if l not in cfg.llms
@@ -383,6 +412,8 @@ def build_plan(cfg: Config, repo: Repo, *, version: str, force: bool = False, no
         plan.warnings.append("블록 밖에 남은 참조 — 지금 구성에 없는 경로입니다. 직접 고치세요:")
         plan.warnings += stale
 
+    _backup_guide(plan)
+
     manifest = Manifest(version, cfg.llms, cfg.plugins, dict(cfg.units),
                         [p for p in cfg.platforms if not PLATFORM[p].contract and p not in cfg.secrets], records)
     text = dump_manifest(manifest)
@@ -390,6 +421,31 @@ def build_plan(cfg: Config, repo: Repo, *, version: str, force: bool = False, no
     if not path.is_file() or path.read_text(encoding="utf-8") != text:
         plan.changes.append(Change("overwrite" if path.is_file() else "create", MANIFEST, text.encode()))
     return plan
+
+
+def _move_to(rel: str) -> str:
+    if rel.endswith("/SKILL.md"):
+        return f"`{ADDITIONS}/{rel.rsplit('/', 2)[-2]}.md`"
+    if rel.endswith("/GUIDE.md"):
+        return "`AGENTS.md` (outside the blocks) or the tool scripts"
+    if rel in ("AGENTS.md", ".gitignore"):
+        return f"`{rel}`, outside the yjcli blocks"
+    if rel in ("Makefile", "make.ps1"):
+        return "the tool scripts under `tools/`"
+    return "`AGENTS.md` (outside the blocks)"
+
+
+def _backup_guide(plan: Plan) -> None:
+    prefix = plan.backup + "/"
+    saved = [c.path[len(prefix):] for c in plan.changes if c.kind == "backup"]
+    if not saved:
+        return
+    rows = [(f"`{rel}`", f"`{plan.backup}/{rel}`", _move_to(rel)) for rel in saved]
+    change = f"{plan.previous} → {plan.version}" if plan.previous and plan.previous != plan.version else plan.version
+    text = t.render(_read("templates", "root", "backup-guide.md"), {
+        "version": plan.version, "change": change, "backup": plan.backup,
+        "files": t.table(("File", "Previous copy", "Move local edits to"), rows)})
+    plan.changes.append(Change("backup", f"{plan.backup}/MERGE.md", text.encode()))
 
 
 def _compare(plan: Plan, root: Path, rel: str, want: _Want, rec: Record | None, records: dict[str, Record],
@@ -427,7 +483,8 @@ def _compare(plan: Plan, root: Path, rel: str, want: _Want, rec: Record | None, 
                 hint = "프로젝트 메모는 AGENTS.md 에 적으세요"
             else:
                 hint = "git diff 로 확인하세요"
-            plan.review.append(f"{rel}: 로컬 수정을 덮어썼습니다 — {hint}")
+            plan.review.append(f"{rel}: 로컬 수정을 덮어썼습니다 — {plan.backup}/{rel} 와 비교해 {hint}")
+            plan.back_up(rel, disk)
         plan.changes.append(Change("overwrite", rel, want.content, want.executable, note))
         records[rel] = Record(MANAGED, sha256(want.content))
         return
@@ -446,14 +503,29 @@ def _compare(plan: Plan, root: Path, rel: str, want: _Want, rec: Record | None, 
         records[rel] = rec  # the project deleted it: remember the opt-out
 
 
-def _agents(plan: Plan, root: Path, cfg: Config, records: dict[str, Record]) -> None:
+def _blocks_hash(text: str, names, style: str = "html") -> str:
+    return sha256("\0".join(t.block_body(text, n, style) or "" for n in names).encode())
+
+
+def _merge(plan: Plan, rel: str, current: str, text: str, rec: Record | None, names, style: str = "html") -> None:
+    """Record a block refresh; back the file up first when its blocks were edited by hand."""
+    if text != current:
+        if rec is None or rec.template != _blocks_hash(current, names, style):
+            plan.back_up(rel, current.encode())
+            plan.review.append(f"{rel}: 블록 안의 로컬 수정을 덮어썼습니다 — {plan.backup}/{rel} 와 비교하세요")
+        plan.changes.append(Change("merge", rel, text.encode()))
+    else:
+        plan.kept.append(rel)
+
+
+def _agents(plan: Plan, root: Path, cfg: Config, records: dict[str, Record], rec: Record | None) -> None:
     blocks = {"rules": _read("templates", "root", "agents-rules.md").rstrip("\n"), "skills": _skills_block(cfg),
               "layout": _layout_block(cfg)}
     path = root / "AGENTS.md"
     if not path.is_file():
         text = t.render(_read("templates", "root", "AGENTS.md"), {f"{k}_block": v for k, v in blocks.items()})
         plan.changes.append(Change("create", "AGENTS.md", text.encode()))
-        records["AGENTS.md"] = Record(BLOCK, sha256(text.encode()))
+        records["AGENTS.md"] = Record(BLOCK, sha256(text.encode()), _blocks_hash(text, blocks))
         return
     current = path.read_text(encoding="utf-8")
     text = current
@@ -463,14 +535,11 @@ def _agents(plan: Plan, root: Path, cfg: Config, records: dict[str, Record]) -> 
             replaced = text.rstrip("\n") + "\n\n" + t.block(name, body)
             plan.review.append(f"AGENTS.md: <!-- yjcli:{name} --> 블록이 없어 파일 끝에 다시 넣었습니다 — 위치를 확인하세요")
         text = replaced
-    if text != current:
-        plan.changes.append(Change("merge", "AGENTS.md", text.encode()))
-    else:
-        plan.kept.append("AGENTS.md")
-    records["AGENTS.md"] = Record(BLOCK, sha256(text.encode()))
+    _merge(plan, "AGENTS.md", current, text, rec, blocks)
+    records["AGENTS.md"] = Record(BLOCK, sha256(text.encode()), _blocks_hash(text, blocks))
 
 
-def _gitignore(plan: Plan, root: Path, cfg: Config, records: dict[str, Record]) -> None:
+def _gitignore(plan: Plan, root: Path, cfg: Config, records: dict[str, Record], rec: Record | None) -> None:
     body = _gitignore_block(cfg)
     path = root / ".gitignore"
     if not path.is_file():
@@ -479,8 +548,5 @@ def _gitignore(plan: Plan, root: Path, cfg: Config, records: dict[str, Record]) 
     else:
         current = path.read_text(encoding="utf-8")
         text = t.replace_block(current, "managed", body, "hash") or (current.rstrip("\n") + "\n\n" + t.block("managed", body, "hash"))
-        if text != current:
-            plan.changes.append(Change("merge", ".gitignore", text.encode()))
-        else:
-            plan.kept.append(".gitignore")
-    records[".gitignore"] = Record(BLOCK, sha256(text.encode()))
+        _merge(plan, ".gitignore", current, text, rec, ["managed"], "hash")
+    records[".gitignore"] = Record(BLOCK, sha256(text.encode()), _blocks_hash(text, ["managed"], "hash"))

@@ -98,7 +98,7 @@ def apply(plan: Plan, root: Path) -> None:
             if c.kind == "mkdir":
                 undo.before_mkdir(path)
                 path.mkdir(parents=True, exist_ok=True)
-            elif c.kind in ("create", "overwrite", "merge"):
+            elif c.kind in ("create", "overwrite", "merge", "backup"):
                 undo.before_write(path)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(c.content or b"")

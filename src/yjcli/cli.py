@@ -16,12 +16,12 @@ from rich.console import Console
 
 from yjcli import repo as repomod
 from yjcli.apply import ApplyError, apply
-from yjcli.catalog import DATA, LLM, LLMS, MANAGED, PLATFORM, PLUGIN, PLUGINS, PROTO, plugins_lacking
+from yjcli.catalog import DATA, FIXED_ENVS, LLM, LLMS, MANAGED, PLATFORM, PLUGIN, PLUGINS, PROTO, plugins_lacking
 from yjcli.plan import Plan, build_plan
 from yjcli.references import stale_references
 from yjcli.repo import Repo, read_repo
 from yjcli.selection import (
-    Request, add_units, all_platforms, fill_defaults, gaps, parse_assignments, parse_ids, remove_units, resolve,
+    Request, add_units, all_platforms, check_envs, fill_defaults, gaps, parse_assignments, parse_ids, remove_units, resolve,
     service_platforms, split,
 )
 from yjcli.ui import report
@@ -46,6 +46,8 @@ Names = Annotated[Optional[list[str]], typer.Option("--name", "-n", help="서비
 ProtoLangs = Annotated[Optional[list[str]], typer.Option("--proto-lang", help="proto 언어 추가: go, dart, python (쉼표)")]
 Secrets = Annotated[Optional[list[str]], typer.Option(
     "--secrets", help="tools/secrets/ 를 켤 플랫폼 목록 (쉼표, all, none). 빠진 플랫폼은 끔")]
+Envs = Annotated[Optional[list[str]], typer.Option(
+    "--env", help="추가 환경 (쉼표, 새 저장소만). local-dev, production 은 항상 생성. 이후에는 yjcli env add/remove")]
 Mode = Annotated[Optional[str], typer.Option("--mode", help="new | update (기본: 자동 감지)")]
 Yes = Annotated[bool, typer.Option("--yes", "-y", help="묻지 않고 적용")]
 DryRun = Annotated[bool, typer.Option("--dry-run", help="계획만 출력")]
@@ -218,8 +220,16 @@ def help_(ctx: typer.Context, command: Annotated[Optional[list[str]], typer.Argu
     typer.echo(cmd.get_help(context))
 
 
-def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets) -> Collect:
+def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env=None) -> Collect:
     def collect(req: Request, repo: Repo, errors: list[str]) -> None:
+        if env is not None:
+            if repo.configured:
+                errors.append("--env 는 새 저장소에서만 씁니다 — 이후에는 yjcli env add / yjcli env remove")
+            else:
+                names, errs, notes = check_envs(" ".join(env), [])
+                errors += [f"--env: {e}" for e in errs]
+                req.envs_add, req.notes = names, req.notes + notes
+                req.answered.add("envs")
         req.llms = parse_ids(llm, list(LLM), "LLM", errors)
         req.platforms = parse_ids(platform, all_platforms(), "플랫폼", errors)
         req.plugins = parse_ids(plugin, list(PLUGIN), "플러그인", errors)
@@ -245,19 +255,20 @@ def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets) -> Collect
 
 @app.command("wizard")
 def wizard(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, name: Names = None,
-           proto_lang: ProtoLangs = None, secrets: Secrets = None, mode: Mode = None, yes: Yes = False,
-           dry_run: DryRun = False, force: Force = False, diff: Diff = False, path: PathOpt = Path(".")) -> None:
+           proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
+           yes: Yes = False, dry_run: DryRun = False, force: Force = False, diff: Diff = False,
+           path: PathOpt = Path(".")) -> None:
     """구성을 고르는 마법사 (새 저장소 또는 기존 저장소). 인자는 답을 미리 채우고, -y 면 묻지 않고 적용."""
-    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets), kind="wizard", yes=yes,
+    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env), kind="wizard", yes=yes,
         dry_run=dry_run, force=force, diff=diff, mode=mode)
 
 
 @app.command("plan")
 def plan_(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, name: Names = None,
-          proto_lang: ProtoLangs = None, secrets: Secrets = None, mode: Mode = None, force: Force = False,
-          diff: Diff = False, path: PathOpt = Path(".")) -> None:
+          proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
+          force: Force = False, diff: Diff = False, path: PathOpt = Path(".")) -> None:
     """적용하지 않고 계획만 출력 (wizard --dry-run 과 같음)."""
-    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets), kind="wizard", yes=True,
+    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env), kind="wizard", yes=True,
         dry_run=True, force=force, diff=diff, mode=mode)
 
 
@@ -289,6 +300,8 @@ def status(path: PathOpt = Path(".")) -> None:
     for pid, units in m.units.items():
         option = "" if PLATFORM[pid].contract else f"  (secrets {'끔' if pid in m.secrets_off else '켬'})"
         console.print(f"  {pid}: {', '.join(units)}{option}", markup=False)
+    if any(PLATFORM[p].contract is False and p not in m.secrets_off for p in m.units):
+        console.print(f"  환경: {', '.join([*FIXED_ENVS, *repo.environments])}", markup=False)
     edited = [rel for rel, rec in sorted(m.files.items()) if rec.policy == MANAGED and (path / rel).is_file()
               and repomod.sha256((path / rel).read_bytes()) != rec.sha256]
     if edited:
@@ -324,6 +337,7 @@ platform_app = _group("platform", "플랫폼 추가/삭제 (add, remove)")
 service_app = _group("service", "서비스 추가/삭제 (add, remove)")
 proto_app = _group("proto", "proto 언어 추가/삭제 (add, remove)")
 secrets_app = _group("secrets", "플랫폼별 tools/secrets/ 켜기/끄기 (on, off)")
+env_app = _group("env", "추가 환경 추가/삭제 (add, remove). local-dev, production 은 항상 있음")
 
 
 def change(path: Path, collect: Collect, yes: bool, dry_run: bool) -> None:
@@ -477,3 +491,27 @@ def secrets_on(platform: Ids, yes: Yes = False, dry_run: DryRun = False, path: P
 def secrets_off(platform: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOpt = Path(".")) -> None:
     """tools/secrets/ 끄기 (tools/secrets/<platform>/ 폴더 삭제)."""
     change(path, _secrets(platform, False), yes, dry_run)
+
+
+@env_app.command("add")
+def env_add(env: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOpt = Path(".")) -> None:
+    """환경 추가 (예: yjcli env add development stage). secrets 를 켠 모든 서비스에 .env.<환경> 생성."""
+    def collect(req, repo, errors):
+        names, errs, notes = check_envs(" ".join(env), repo.environments)
+        errors += errs
+        req.envs_add, req.notes = names, req.notes + notes
+    change(path, collect, yes, dry_run)
+
+
+@env_app.command("remove")
+def env_remove(env: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOpt = Path(".")) -> None:
+    """환경 삭제 (모든 서비스의 tools/secrets/<platform>/<service>/.env.<환경>)."""
+    def collect(req, repo, errors):
+        for name in dict.fromkeys(split(env) or []):
+            if name in FIXED_ENVS:
+                errors.append(f"{name}: 항상 있는 환경이라 지울 수 없습니다")
+            elif name not in repo.environments:
+                errors.append(f"{name}: 없는 환경입니다 (있는 환경: {', '.join(repo.environments) or '없음'})")
+            else:
+                req.envs_remove.append(name)
+    change(path, collect, yes, dry_run)

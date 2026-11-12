@@ -16,6 +16,7 @@
 
 ### Project rules
 
+- Backward compatibility: `ask` (`ask` = agents ask once per task · `rewrite` = drop old behavior without asking · `keep` = keep old behavior working; see skill `yj-arch-core`)
 - `<rule>`
 
 ### Skills

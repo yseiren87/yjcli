@@ -20,7 +20,7 @@ help:
 {{#if deployer}}
 	@echo "  make <platform>-deploy-<env> [NAME=<service>]  # deploy dist/ (tools/deployer)"
 {{/if}}
-	@echo "  <env>: development | production | any .env.<env> under tools/secrets/<platform>/<service>/"
+	@echo "  <env>: {{environments}} (add one with: yjcli env add <env>)"
 	@echo ""
 	@echo "Platforms: $(PLATFORMS)"
 {{#if runner}}

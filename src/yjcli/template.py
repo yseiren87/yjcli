@@ -69,7 +69,7 @@ def _value(ctx: dict, name: str):
 
 
 def substitute(text: str, values: dict[str, str]) -> str:
-    """Plain token replacement for stack files (`__NAME__`, `__PORT__`)."""
+    """Plain token replacement for stack files (`__NAME__`, `__PORT__`, `__ENV_SCRIPTS__`)."""
     for token, value in values.items():
         text = text.replace(token, value)
     return text
@@ -94,6 +94,13 @@ def replace_block(text: str, name: str, body: str, style: str = "html") -> str |
     if i < 0 or j < 0:
         return None
     return text[:i + len(start)] + "\n" + body.rstrip("\n") + "\n" + text[j:]
+
+
+def block_body(text: str, name: str, style: str = "html") -> str | None:
+    start, end = markers(name, style)
+    i = text.find(start)
+    j = text.find(end, i + len(start)) if i >= 0 else -1
+    return None if i < 0 or j < 0 else text[i + len(start):j].strip("\n")
 
 
 def strip_blocks(text: str) -> str:

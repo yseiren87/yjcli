@@ -11,7 +11,7 @@ The deployer ships what the builder put in `dist/`. It never builds.
 | `make <platform>-deploy-<env>` / `./make.ps1 <platform>-deploy-<env>` | `tools/deployer/<platform>/deployer.sh <env>` / `deployer.ps1 <env>` |
 | `… NAME=<service>` | same script, with `<service>` as the second argument |
 
-`<env>` is any environment the builder accepts (`development`, `production`, or one you added as `tools/secrets/<platform>/<service>/.env.<env>`). Build first with `make <platform>-build-<env>`. Current services:
+`<env>` is any environment the builder accepts (`production`, or one added with `yjcli env add <env>`). Build first with `make <platform>-build-<env>`. Current services:
 
 {{service_list}}
 

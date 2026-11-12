@@ -11,7 +11,7 @@ The builder turns each service into a runnable build under `dist/`. It only buil
 | `make <platform>-build-<env>` / `./make.ps1 <platform>-build-<env>` | `tools/builder/<platform>/builder.sh <env>` / `builder.ps1 <env>` |
 | `… NAME=<service>` | same script, with `<service>` as the second argument |
 
-`<env>` is an environment name: `development` and `production` come with every service; add more (`staging`, `test`, …) by creating `tools/secrets/<platform>/<service>/.env.<env>` for every service of the platform. `local-dev` is for local runs only. Current services:
+`<env>` is an environment name: `production` comes with every service; add more (`staging`, `test`, …) with `yjcli env add <env>`, which creates `tools/secrets/<platform>/<service>/.env.<env>` for every service. `local-dev` is for local runs only. Current services:
 
 {{service_list}}
 

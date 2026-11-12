@@ -59,12 +59,12 @@ deploy_one() {
 # -----------------------------------------------------------------------------
 
 usage() {
-  echo "usage: $0 <environment> [service]   (development, production, staging, ...)" >&2
+  echo "usage: $0 <environment> [service]   (production, staging, ...)" >&2
   exit 1
 }
 
-# Any environment name: development and production come with every service; add more
-# (staging, test, ...) by creating tools/secrets/<platform>/<service>/.env.<name>.
+# Any environment name: production comes with every service; add more (staging, test, ...)
+# with `yjcli env add <name>` (tools/secrets/<platform>/<service>/.env.<name>).
 # local-dev is for local runs (tools/runner) only.
 case "$ENVIRONMENT" in
   "" | local-dev | *[!A-Za-z0-9_-]*) usage ;;

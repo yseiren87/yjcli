@@ -8,7 +8,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from yjcli.catalog import LANGUAGE, PLATFORM, PLATFORMS
+from yjcli.catalog import FIXED_ENVS, LANGUAGE, PLATFORM, PLATFORMS
 
 MANIFEST = ".yjcli/manifest.toml"
 SCHEMA = 1
@@ -21,7 +21,7 @@ MIN_SUPPORTED = "0.5.0"
 class Record:
     policy: str
     sha256: str  # content yjcli last wrote (or found, for a seed it adopted)
-    template: str | None = None  # hash of the rendered template (seeds): detects template changes
+    template: str | None = None  # seeds: hash of the rendered template · blocks: hash of the block bodies
 
 
 @dataclass
@@ -95,6 +95,7 @@ class Repo:
     root: Path
     manifest: Manifest | None
     units: dict[str, list[str]]  # platform -> services / languages found on disk
+    environments: list[str] = field(default_factory=list)  # added environments: any tools/secrets/*/*/.env.<env>
 
     @property
     def configured(self) -> bool:
@@ -120,7 +121,13 @@ def read_repo(root: Path) -> Repo:
             found = sorted(d.name for d in base.iterdir() if d.is_dir() and not d.name.startswith(".")) if base.is_dir() else []
         if found:
             units[p.id] = found
-    return Repo(root, load_manifest(root), units)
+    return Repo(root, load_manifest(root), units, added_environments(root))
+
+
+def added_environments(root: Path) -> list[str]:
+    secrets = root / "tools" / "secrets"
+    names = {f.name[len(".env."):] for f in secrets.glob("*/*/.env.*") if f.is_file()} if secrets.is_dir() else set()
+    return sorted(n for n in names if n and n not in FIXED_ENVS)
 
 
 # --------------------------------------------------------------------- versions

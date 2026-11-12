@@ -34,7 +34,7 @@ Current services:
 
 ## Requirements
 
-- Local runs with `tools/secrets/` always use `.env.local-dev` — never `.env.development` / `.env.production`, and never hardcode `HOST` / `PORT`.
+- Local runs with `tools/secrets/` always use `.env.local-dev` — never another environment's file, and never hardcode `HOST` / `PORT`.
 - `runner.sh` and `runner.ps1` behave the same.
 - `runner.sh` works on macOS's bash 3.2: no `wait -n`, no associative arrays, guard empty arrays with `${arr[@]+"${arr[@]}"}`.
 - `runner.ps1` stays ASCII-only so Windows PowerShell 5.1 reads it correctly.

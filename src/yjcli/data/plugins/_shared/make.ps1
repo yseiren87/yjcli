@@ -24,7 +24,7 @@ function Show-Help {
 {{#if deployer}}
     Write-Host "  make.ps1 <platform>-deploy-<env> [NAME=<service>]  # deploy dist/ (tools/deployer)"
 {{/if}}
-    Write-Host "  <env>: development | production | any .env.<env> under tools/secrets/<platform>/<service>/"
+    Write-Host "  <env>: {{environments}} (add one with: yjcli env add <env>)"
     Write-Host ""
     Write-Host "Platforms: $($Platforms -join ' ')"
 }
