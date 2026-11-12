@@ -43,16 +43,17 @@ yjcli wizard -l cursor,claude -n backend=a1,a2 -n frontend=f1 --plugin runner,bu
 | 1 | LLM targets | `-l/--llm cursor,claude,codex` · `all` | Multi-select (space toggles `[x]`) |
 | 2 | Platforms | `-p/--platform …` · `all` | Multi-select. On a configured repository, unchecking a platform removes it with its code (see Removing) |
 | 3 | Plugins | `--plugin runner,builder,deployer` · `all` · `none` | `deployer` can be checked only after `builder`; on the CLI it fails without `builder` |
-| 4 | Environments (new repository only) | `--env development,stage` | Text input, split with spaces or commas. `local-dev` and `production` are always created; the names you type are added beside them (`.env.development`, `.env.stage`). Later: `yjcli env add` / `yjcli env remove` |
-| 5 | Platform settings | `-n/--name <platform>=a1,a2` (repeatable) · `--secrets all\|none\|<platforms>` | One screen per platform: existing services as a checklist (uncheck = remove), new service names (split with spaces or commas; `-n` alone also selects the platform), then options — `secrets` creates `tools/secrets/<platform>/<service>/.env.*` (on by default) |
-| — | Proto languages | `--proto-lang go,dart,python` | The `proto` platform's screen in step 5 asks for languages instead of names; `--proto-lang` also selects `proto` |
-| 6 | Confirm | `-y/--yes` · `--dry-run` | Removals are listed at the top and the default choice is 취소. Non-interactive runs need `--yes` or `--dry-run` |
+| 4 | Optional skills | `--skill yj-dependency-security,yj-secure-coding` · `all` · `none` | Checklist, both on by default in a new repository: `yj-dependency-security` (CVE check whenever a dependency is added, upgraded or vendored) and `yj-secure-coding` (baseline secure-coding rules). Later: `yjcli skill add` / `yjcli skill remove` |
+| 5 | Environments (new repository only) | `--env development,stage` | Text input, split with spaces or commas. `local-dev` and `production` are always created; the names you type are added beside them (`.env.development`, `.env.stage`). Later: `yjcli env add` / `yjcli env remove` |
+| 6 | Platform settings | `-n/--name <platform>=a1,a2` (repeatable) · `--secrets all\|none\|<platforms>` | One screen per platform: existing services as a checklist (uncheck = remove), new service names (split with spaces or commas; `-n` alone also selects the platform), then options — `secrets` creates `tools/secrets/<platform>/<service>/.env.*` (on by default) |
+| — | Proto languages | `--proto-lang go,dart,python` | The `proto` platform's screen in step 6 asks for languages instead of names; `--proto-lang` also selects `proto` |
+| 7 | Confirm | `-y/--yes` · `--dry-run` | Removals are listed at the top and the default choice is 취소. Non-interactive runs need `--yes` or `--dry-run` |
 
-`←` goes back one screen. Skills are not asked for — they follow the platforms.
+`←` goes back one screen. Platform skills are not asked for — they follow the platforms; only the optional skills of step 4 are chosen. Project-specific additions to them (e.g. the exact patterns of the security scanner your organization uses) go in `.yjcli/skills/<skill>.md`.
 
 ## Platforms
 
-Platforms hold **code only**: service folders, stack files and `.env.examples`. By default every service also gets its env values in `tools/secrets/<platform>/<service>/.env.{local-dev,production}` plus the environments you added — **committed in plain text** (private repos only). This is a per-platform option (step 5, `--secrets`), not a plugin. A platform with it off gets no `tools/secrets/` folder, and its runner/builder/deployer scripts are generated without env file handling: the project supplies env values its own way.
+Platforms hold **code only**: service folders, stack files and `.env.examples`. By default every service also gets its env values in `tools/secrets/<platform>/<service>/.env.{local-dev,production}` plus the environments you added — **committed in plain text** (private repos only). This is a per-platform option (step 6, `--secrets`), not a plugin. A platform with it off gets no `tools/secrets/` folder, and its runner/builder/deployer scripts are generated without env file handling: the project supplies env values its own way.
 
 Environments are shared by every service with `tools/secrets/`: `local-dev` (local runs) and `production` always exist, and added ones (`yjcli env add staging`) create `.env.staging` for every such service at once. yjcli does not store the list: it reads the `.env.*` names found under `tools/secrets/`, so new services follow them, and an environment deleted by hand from every service is gone from the manifest too (deleted from some services only, it is not recreated there). `yjcli env remove staging` deletes every `.env.staging`.
 
@@ -119,6 +120,8 @@ yjcli proto add python                     # add / remove proto languages
 yjcli proto remove dart
 yjcli secrets on backend                   # turn tools/secrets/ on / off per platform
 yjcli secrets off frontend
+yjcli skill remove yj-secure-coding        # add / remove optional skills (all LLM skill folders)
+yjcli skill add yj-secure-coding
 yjcli env add development staging          # add environments (.env.<env> for every service with tools/secrets/)
 yjcli env remove staging                   # delete .env.staging everywhere (local-dev / production stay)
 yjcli wizard --plugin runner,builder -y    # replace the whole plugin list (other steps unchanged)
@@ -155,6 +158,8 @@ Removing is confirmed once and then clean: the confirmation lists every folder t
 | platform | `<platform>/`, `tools/*/<platform>/`, `tools/secrets/<platform>/`, `dist/<platform>/`, skills no other platform uses | |
 | proto language / proto | `proto/dist/<language>/` / `proto/` (schemas included) and `tools/builder/proto/`; `proto` stays while `backend-msa` uses it | |
 | secrets off | `tools/secrets/<platform>/` | implemented scripts (listed under **to check**) |
+| optional skill | `<skills folder>/<skill>/` for every LLM | `.yjcli/skills/<skill>.md` |
+| environment | `tools/secrets/*/*/.env.<env>` | `.env.local-dev`, `.env.production` (cannot be removed) |
 
 Code (services, platforms, proto) is deleted only by a `remove` command or the wizard's confirmation. If a list-replacing argument (`-p`, `--plugin`, `-l`, `--secrets`) would delete code under `--yes`, yjcli refuses and prints the `remove` command to run instead. A failed apply restores everything, removed folders included.
 

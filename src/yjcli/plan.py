@@ -137,6 +137,7 @@ def _context(cfg: Config, repo_name: str) -> dict:
     ctx = {
         "platform_roots": "\n".join(f"{p + '/':<22}# {', '.join(PLATFORM[p].skills)}" for p in platforms),
         "skill_routes": t.table(("Path", "Platform skill"), routes_for(platforms)),
+        "optional_skills": _optional_lines(cfg, ""),
         "plugins": "\n\n".join(fragments) or NO_TOOLING,
         "tooling": bool(cfg.plugins),
         "platforms": " ".join(services),
@@ -164,8 +165,15 @@ def _skills_block(cfg: Config) -> str:
         "2. Load **exactly one** matching platform skill for the folder being edited (the first matching row wins):\n\n"
         f"{t.table(('Path', 'Skill'), routes_for(cfg.platforms))}\n\n"
         "Never load all platform skills. Never apply a platform skill outside its folder.\n\n"
+        f"{_optional_lines(cfg)}"
         f"Skills are installed under:\n\n{dirs}"
     )
+
+
+def _optional_lines(cfg: Config, tail: str = "\n\n") -> str:
+    """Optional skills and when to load them (empty when none is chosen)."""
+    lines = [f"- `{s}` — {SKILL[s].when}." for s in cfg.skills]
+    return "Also load, together with the platform skill:\n\n" + "\n".join(lines) + tail if lines else ""
 
 
 def _layout_block(cfg: Config) -> str:
@@ -323,7 +331,7 @@ def _removals(cfg: Config, before: Config | None, repo: Repo, skills: list[str])
     for l in before.llms:
         if l not in cfg.llms and LLM[l].skills_dir not in staying_dirs:
             wanted.append((LLM[l].skills_dir, f"LLM {l}", False))
-    for s in skills_for(before.platforms):
+    for s in skills_for(before.platforms, before.skills):
         if s not in skills:
             wanted += [(f"{LLM[l].skills_dir}/{s}", f"스킬 {s}", False) for l in cfg.llms]
     wanted += [(f"tools/{p}", f"플러그인 {p}", False) for p in before.plugins if p not in cfg.plugins]
@@ -370,7 +378,7 @@ def build_plan(cfg: Config, repo: Repo, *, version: str, force: bool = False, no
     m = repo.manifest
     before = stored_config(repo)
     added = {p: [u for u in us if u not in repo.existing(p)] for p, us in cfg.units.items()}
-    plan = Plan(new=m is None, config=cfg, before=before, skills=skills_for(cfg.platforms),
+    plan = Plan(new=m is None, config=cfg, before=before, skills=skills_for(cfg.platforms, cfg.skills),
                 added={p: us for p, us in added.items() if us}, version=version,
                 previous=m.version if m else None, notes=list(notes or []),
                 backup=f"{BACKUP}/{datetime.now():%Y%m%d-%H%M%S}")
@@ -415,7 +423,8 @@ def build_plan(cfg: Config, repo: Repo, *, version: str, force: bool = False, no
     _backup_guide(plan)
 
     manifest = Manifest(version, cfg.llms, cfg.plugins, dict(cfg.units),
-                        [p for p in cfg.platforms if not PLATFORM[p].contract and p not in cfg.secrets], records)
+                        [p for p in cfg.platforms if not PLATFORM[p].contract and p not in cfg.secrets], records,
+                        cfg.skills)
     text = dump_manifest(manifest)
     path = root / MANIFEST
     if not path.is_file() or path.read_text(encoding="utf-8") != text:

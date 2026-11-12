@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 
 from yjcli.catalog import (
-    FIXED_ENVS, LANGUAGE, LLM, PLATFORM, PLATFORMS, PLUGIN, SERVICE_PLATFORMS, catalog_order, plugins_lacking,
+    FIXED_ENVS, LANGUAGE, LLM, OPTIONAL_SKILLS, PLATFORM, PLATFORMS, PLUGIN, SERVICE_PLATFORMS, catalog_order, plugins_lacking,
     with_required,
 )
 from yjcli.repo import Repo
@@ -25,12 +25,13 @@ class Request:
     llms: list[str] | None = None
     platforms: list[str] | None = None
     plugins: list[str] | None = None
+    skills: list[str] | None = None  # optional skills
     add: dict[str, list[str]] = field(default_factory=dict)  # platform -> units to add
     remove: dict[str, list[str]] = field(default_factory=dict)  # platform -> units to remove
     secrets: dict[str, bool] = field(default_factory=dict)  # chosen now; others keep the stored value
     envs_add: list[str] = field(default_factory=list)  # environments beside local-dev / production
     envs_remove: list[str] = field(default_factory=list)
-    answered: set[str] = field(default_factory=set)  # given as arguments: llms, platforms, plugins, secrets, envs, units:<p>
+    answered: set[str] = field(default_factory=set)  # given as arguments: llms, platforms, plugins, skills, secrets, envs, units:<p>
     code_removal_ok: bool = False  # set by remove commands and the wizard's confirmation
     notes: list[str] = field(default_factory=list)
 
@@ -42,6 +43,7 @@ class Config:
     units: dict[str, list[str]]  # selected platform -> units, catalog order
     secrets: list[str]  # platforms whose services get tools/secrets/
     environments: list[str] = field(default_factory=list)  # added environments (FIXED_ENVS always exist)
+    skills: list[str] = field(default_factory=list)  # optional skills
 
     @property
     def platforms(self) -> list[str]:
@@ -158,12 +160,15 @@ def stored_config(repo: Repo) -> Config | None:
         return None
     units = {p: repo.existing(p) or list(m.units.get(p, [])) for p in repo.platforms()}
     return Config(list(m.llms), list(m.plugins), units, [p for p in units if stored_secrets(repo, p)],
-                  list(repo.environments))
+                  list(repo.environments), list(m.skills))
 
 
 def fill_defaults(req: Request, repo: Repo) -> None:
-    """Unanswered steps keep the stored configuration; required platforms come along."""
+    """Unanswered steps keep the stored configuration (a new repository gets every optional skill);
+    required platforms come along."""
     m = repo.manifest
+    if req.skills is None:
+        req.skills = list(m.skills) if m else list(OPTIONAL_SKILLS)
     if m:
         req.llms = list(m.llms) if req.llms is None else req.llms
         req.plugins = list(m.plugins) if req.plugins is None else req.plugins
@@ -231,7 +236,7 @@ def resolve(req: Request, repo: Repo) -> tuple[Config | None, list[str]]:
     if req.envs_add and not secrets:
         return None, ["추가 환경은 tools/secrets/ 의 .env.<환경> 파일로 기록됩니다 — secrets 를 켠 플랫폼이 필요합니다"]
     environments = sorted({*repo.environments, *req.envs_add} - set(req.envs_remove))
-    return Config(llms, plugins, units, secrets, environments), []
+    return Config(llms, plugins, units, secrets, environments, catalog_order(req.skills or [], OPTIONAL_SKILLS)), []
 
 
 def service_platforms() -> list[str]:

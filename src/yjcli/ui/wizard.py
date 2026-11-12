@@ -1,6 +1,6 @@
 """`yjcli wizard`.
 
-Screens: LLM → platforms → plugins → environments (new repository only) → per
+Screens: LLM → platforms → plugins → optional skills → environments (new repository only) → per
 platform (existing services, new names, options; languages for proto) → confirm. The list is rebuilt after every answer,
 so the per-platform screens follow the platform choice. ← goes to the previous
 screen. On a configured repository every screen starts from the stored
@@ -14,14 +14,14 @@ from typing import Callable
 
 from rich.console import Console
 
-from yjcli.catalog import FIXED_ENVS, LANGUAGES, LLMS, PLATFORM, PLATFORMS, PLUGINS, drop_dependents, plugins_lacking, with_required
+from yjcli.catalog import FIXED_ENVS, LANGUAGES, OPTIONAL_SKILLS, SKILL, LLMS, PLATFORM, PLATFORMS, PLUGINS, drop_dependents, plugins_lacking, with_required
 from yjcli.plan import Plan
 from yjcli.repo import Repo
 from yjcli.selection import Request, check_envs, check_units, secrets_wanted
 from yjcli.ui import report
 from yjcli.ui.prompts import BACK, Item, Prompter
 
-STEPS = ("LLM 대상", "플랫폼", "플러그인", "환경", "플랫폼 설정", "확인 및 실행")
+STEPS = ("LLM 대상", "플랫폼", "플러그인", "스킬(선택)", "환경", "플랫폼 설정", "확인 및 실행")
 MakePlan = Callable[[Request], tuple[Plan | None, list[str]]]
 
 
@@ -41,8 +41,8 @@ def _header(console: Console, repo: Repo, req: Request, step: int, sub: str = ""
     console.print(f"[bold]yjcli[/bold] · {repo.root} · {'업데이트' if repo.configured else '신규 설치'}")
     done = (", ".join(req.llms or []), ", ".join(req.platforms or []),
             ", ".join(req.plugins or []) or ("없음" if req.plugins is not None else ""),
-            ", ".join([*FIXED_ENVS, *repo.environments, *req.envs_add]), "", "")
-    answered = ("llms", "platforms", "plugins", "envs", None, None)
+            ", ".join(req.skills or []) or "없음", ", ".join([*FIXED_ENVS, *repo.environments, *req.envs_add]), "", "")
+    answered = ("llms", "platforms", "plugins", "skills", "envs", None, None)
     for i, title in enumerate(STEPS):
         mark = "✔" if i < step else "▸" if i == step else "○"
         value = done[i] if i < step else sub if i == step else ""
@@ -52,7 +52,8 @@ def _header(console: Console, repo: Repo, req: Request, step: int, sub: str = ""
 
 
 def _screens(req: Request, repo: Repo) -> list[tuple[str, str | None]]:
-    out: list[tuple[str, str | None]] = [(s, None) for s in ("llms", "platforms", "plugins") if s not in req.answered]
+    out: list[tuple[str, str | None]] = [(s, None) for s in ("llms", "platforms", "plugins", "skills")
+                                         if s not in req.answered]
     if not repo.configured and "envs" not in req.answered:  # later: yjcli env add / remove
         out.append(("environments", None))
     for pid in req.platforms or []:
@@ -145,8 +146,17 @@ def run_wizard(req: Request, repo: Repo, prompter: Prompter, console: Console, m
             ], toggle=_plugin_toggle, locks=_plugin_locks)
             if answer is not BACK:
                 req.plugins = [p.id for p in PLUGINS if p.id in answer and not plugins_lacking(answer).get(p.id)]
-        elif kind == "environments":
+        elif kind == "skills":
             _header(console, repo, req, 3)
+            stored = set(repo.manifest.skills) if repo.manifest else set()
+            answer = prompter.checkbox("함께 쓸 스킬을 선택하세요 (플랫폼 스킬은 자동)", [
+                Item(s, f"{s:<24} {SKILL[s].label}" + ("  설치됨" if s in stored else ""), s in (req.skills or []))
+                for s in OPTIONAL_SKILLS
+            ])
+            if answer is not BACK:
+                req.skills = answer
+        elif kind == "environments":
+            _header(console, repo, req, 4)
 
             def check_env(raw: str) -> str | None:
                 return "; ".join(check_envs(raw, [])[1]) or None
@@ -161,7 +171,7 @@ def run_wizard(req: Request, repo: Repo, prompter: Prompter, console: Console, m
                 if names:
                     console.print("  → " + ", ".join(f".env.{n}" for n in names), markup=False)
         elif kind == "confirm":
-            _header(console, repo, req, 5)
+            _header(console, repo, req, 6)
             plan, errors = make_plan(req)
             if errors:
                 for e in errors:
@@ -189,7 +199,7 @@ def run_wizard(req: Request, repo: Repo, prompter: Prompter, console: Console, m
             answer = BACK
         else:
             platforms = list(dict.fromkeys(p for _, p in per_platform))
-            _header(console, repo, req, 4, f"({platforms.index(pid) + 1}/{len(platforms)}) {pid}")
+            _header(console, repo, req, 5, f"({platforms.index(pid) + 1}/{len(platforms)}) {pid}")
             existing = repo.existing(pid)
             if kind == "languages":
                 chosen = (set(existing) - set(req.remove.get(pid, []))) | set(req.add.get(pid, []))

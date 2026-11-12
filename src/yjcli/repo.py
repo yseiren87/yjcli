@@ -32,6 +32,7 @@ class Manifest:
     units: dict[str, list[str]] = field(default_factory=dict)  # platform -> services / languages
     secrets_off: list[str] = field(default_factory=list)
     files: dict[str, Record] = field(default_factory=dict)
+    skills: list[str] = field(default_factory=list)  # optional skills
 
 
 def sha256(data: bytes) -> str:
@@ -50,6 +51,7 @@ def load_manifest(root: Path) -> Manifest | None:
         version=data.get("yjcli_version", ""),
         llms=list(data.get("llms", [])),
         plugins=list(data.get("plugins", [])),
+        skills=list(data.get("skills", [])),
         units={p: list(v.get("languages" if PLATFORM.get(p) and PLATFORM[p].contract else "services", []))
                for p, v in platforms.items() if p in PLATFORM},
         secrets_off=[p for p, v in platforms.items() if v.get("secrets") is False],
@@ -74,6 +76,7 @@ def dump_manifest(m: Manifest) -> str:
         "",
         f"llms = {_list(m.llms)}",
         f"plugins = {_list(m.plugins)}",
+        f"skills = {_list(m.skills)}",
     ]
     for p in [x.id for x in PLATFORMS if x.id in m.units]:
         key = "languages" if PLATFORM[p].contract else "services"

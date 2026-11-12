@@ -81,6 +81,10 @@ Applies when a task changes or removes existing behavior (rename, removed field 
 {{skill_routes}}
 
 Never load all platform skills. Never apply a platform skill outside its folder.
+{{#if optional_skills}}
+
+{{optional_skills}}
+{{/if}}
 
 ## Universal roles
 

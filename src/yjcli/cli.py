@@ -16,7 +16,7 @@ from rich.console import Console
 
 from yjcli import repo as repomod
 from yjcli.apply import ApplyError, apply
-from yjcli.catalog import DATA, FIXED_ENVS, LLM, LLMS, MANAGED, PLATFORM, PLUGIN, PLUGINS, PROTO, plugins_lacking
+from yjcli.catalog import DATA, FIXED_ENVS, LLM, LLMS, MANAGED, OPTIONAL_SKILLS, PLATFORM, PLUGIN, PLUGINS, PROTO, plugins_lacking
 from yjcli.plan import Plan, build_plan
 from yjcli.references import stale_references
 from yjcli.repo import Repo, read_repo
@@ -37,11 +37,14 @@ def installed_version() -> str:
         return "0.0.0+local"
 
 
-IDS = {"llm": ", ".join(LLM), "platform": ", ".join(PLATFORM), "plugin": ", ".join(PLUGIN)}
+IDS = {"llm": ", ".join(LLM), "platform": ", ".join(PLATFORM), "plugin": ", ".join(PLUGIN),
+       "skill": ", ".join(OPTIONAL_SKILLS)}
 Llms = Annotated[Optional[list[str]], typer.Option("--llm", "-l", help=f"LLM 대상 목록 (쉼표, all). {IDS['llm']}")]
 Platforms = Annotated[Optional[list[str]], typer.Option(
     "--platform", "-p", help=f"플랫폼 목록 (쉼표, all). 목록에서 빠진 플랫폼은 삭제 대상. {IDS['platform']}")]
 Plugins = Annotated[Optional[list[str]], typer.Option("--plugin", help=f"플러그인 목록 (쉼표, all, none). {IDS['plugin']}")]
+Skills = Annotated[Optional[list[str]], typer.Option(
+    "--skill", help=f"선택 스킬 목록 (쉼표, all, none; 새 저장소 기본 all). {IDS['skill']}")]
 Names = Annotated[Optional[list[str]], typer.Option("--name", "-n", help="서비스: <platform>=a1,a2 (반복 가능)")]
 ProtoLangs = Annotated[Optional[list[str]], typer.Option("--proto-lang", help="proto 언어 추가: go, dart, python (쉼표)")]
 Secrets = Annotated[Optional[list[str]], typer.Option(
@@ -220,8 +223,11 @@ def help_(ctx: typer.Context, command: Annotated[Optional[list[str]], typer.Argu
     typer.echo(cmd.get_help(context))
 
 
-def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env=None) -> Collect:
+def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env=None, skill=None) -> Collect:
     def collect(req: Request, repo: Repo, errors: list[str]) -> None:
+        req.skills = parse_ids(skill, list(OPTIONAL_SKILLS), "스킬", errors)
+        if skill is not None:
+            req.answered.add("skills")
         if env is not None:
             if repo.configured:
                 errors.append("--env 는 새 저장소에서만 씁니다 — 이후에는 yjcli env add / yjcli env remove")
@@ -254,21 +260,21 @@ def _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env=None) 
 
 
 @app.command("wizard")
-def wizard(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, name: Names = None,
-           proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
+def wizard(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, skill: Skills = None,
+           name: Names = None, proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
            yes: Yes = False, dry_run: DryRun = False, force: Force = False, diff: Diff = False,
            path: PathOpt = Path(".")) -> None:
     """구성을 고르는 마법사 (새 저장소 또는 기존 저장소). 인자는 답을 미리 채우고, -y 면 묻지 않고 적용."""
-    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env), kind="wizard", yes=yes,
+    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env, skill), kind="wizard", yes=yes,
         dry_run=dry_run, force=force, diff=diff, mode=mode)
 
 
 @app.command("plan")
-def plan_(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, name: Names = None,
-          proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
+def plan_(llm: Llms = None, platform: Platforms = None, plugin: Plugins = None, skill: Skills = None,
+          name: Names = None, proto_lang: ProtoLangs = None, secrets: Secrets = None, env: Envs = None, mode: Mode = None,
           force: Force = False, diff: Diff = False, path: PathOpt = Path(".")) -> None:
     """적용하지 않고 계획만 출력 (wizard --dry-run 과 같음)."""
-    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env), kind="wizard", yes=True,
+    run(path, _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env, skill), kind="wizard", yes=True,
         dry_run=True, force=force, diff=diff, mode=mode)
 
 
@@ -297,6 +303,7 @@ def status(path: PathOpt = Path(".")) -> None:
         console.print("  새 버전이 설치되어 있습니다 — `yjcli update` 로 반영하세요", markup=False)
     console.print(f"  LLM: {', '.join(m.llms)}", markup=False)
     console.print(f"  플러그인: {', '.join(m.plugins) or '없음'}", markup=False)
+    console.print(f"  스킬(선택): {', '.join(m.skills) or '없음'}", markup=False)
     for pid, units in m.units.items():
         option = "" if PLATFORM[pid].contract else f"  (secrets {'끔' if pid in m.secrets_off else '켬'})"
         console.print(f"  {pid}: {', '.join(units)}{option}", markup=False)
@@ -337,6 +344,7 @@ platform_app = _group("platform", "플랫폼 추가/삭제 (add, remove)")
 service_app = _group("service", "서비스 추가/삭제 (add, remove)")
 proto_app = _group("proto", "proto 언어 추가/삭제 (add, remove)")
 secrets_app = _group("secrets", "플랫폼별 tools/secrets/ 켜기/끄기 (on, off)")
+skill_app = _group("skill", f"선택 스킬 추가/삭제 (add, remove): {IDS['skill']}. 플랫폼 스킬은 플랫폼을 따라감")
 env_app = _group("env", "추가 환경 추가/삭제 (add, remove). local-dev, production 은 항상 있음")
 
 
@@ -514,4 +522,20 @@ def env_remove(env: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOp
                 errors.append(f"{name}: 없는 환경입니다 (있는 환경: {', '.join(repo.environments) or '없음'})")
             else:
                 req.envs_remove.append(name)
+    change(path, collect, yes, dry_run)
+
+
+@skill_app.command("add")
+def skill_add(skill: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOpt = Path(".")) -> None:
+    """선택 스킬 추가 (예: yjcli skill add yj-secure-coding)."""
+    def collect(req, repo, errors):
+        req.skills = _toggled(repo.manifest.skills, skill, list(OPTIONAL_SKILLS), True, "스킬", req, errors)
+    change(path, collect, yes, dry_run)
+
+
+@skill_app.command("remove")
+def skill_remove(skill: Ids, yes: Yes = False, dry_run: DryRun = False, path: PathOpt = Path(".")) -> None:
+    """선택 스킬 삭제 (모든 LLM 의 스킬 폴더에서)."""
+    def collect(req, repo, errors):
+        req.skills = _toggled(repo.manifest.skills, skill, list(OPTIONAL_SKILLS), False, "스킬", req, errors)
     change(path, collect, yes, dry_run)

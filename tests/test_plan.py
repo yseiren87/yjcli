@@ -16,11 +16,11 @@ from yjcli.ui.wizard import installed_label
 
 
 def plan_for(root: Path, *, llm=None, platform=None, plugin=None, name=None, proto_lang=None, secrets=None,
-             env=None, remove=None):
+             env=None, skill=None, remove=None):
     """The plan `yjcli wizard <args>` would make (plus unit removals)."""
     repo = read_repo(root)
     req, errors = Request(), []
-    _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env)(req, repo, errors)
+    _wizard_collect(llm, platform, plugin, name, proto_lang, secrets, env, skill)(req, repo, errors)
     assert errors == [], errors
     req.remove.update(remove or {})
     fill_defaults(req, repo)
@@ -77,6 +77,30 @@ class CreateTests(unittest.TestCase):
                 self.assertNotIn("SECRETS_DIR", (root / f"tools/{tool}/backend/{tool}.sh").read_text())
             self.assertIn("does not use `tools/secrets/`", (root / ".claude/skills/yj-arch-core/SKILL.md").read_text())
             self.assertNotIn("!tools/secrets/", (root / ".gitignore").read_text())
+
+
+class OptionalSkillTests(unittest.TestCase):
+    def test_default_on_then_removed_and_added(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run(root, llm=["claude", "codex"], name=["backend=a1"], plugin=["none"])
+            for d in (".claude/skills", ".agents/skills"):
+                self.assertTrue((root / d / "yj-secure-coding/SKILL.md").is_file())
+                self.assertTrue((root / d / "yj-dependency-security/SKILL.md").is_file())
+            self.assertIn("`yj-dependency-security` — when adding", (root / "AGENTS.md").read_text())
+            self.assertIn("`yj-secure-coding` — when writing", (root / ".claude/skills/yj-arch-core/SKILL.md").read_text())
+
+            plan = run(root, skill=["yj-dependency-security"])
+            self.assertEqual(sorted(r.path for r in plan.removals),
+                             [".agents/skills/yj-secure-coding", ".claude/skills/yj-secure-coding"])
+            self.assertFalse(plan.removes_code)
+            self.assertNotIn("yj-secure-coding", (root / "AGENTS.md").read_text())
+            self.assertEqual(read_repo(root).manifest.skills, ["yj-dependency-security"])
+
+            run(root, skill=["none"])
+            self.assertNotIn("Also load", (root / "AGENTS.md").read_text())
+            self.assertNotIn("Also load", (root / ".claude/skills/yj-arch-core/SKILL.md").read_text())
+            self.assertEqual(plan_for(root).file_changes, [])
 
 
 class EnvironmentTests(unittest.TestCase):

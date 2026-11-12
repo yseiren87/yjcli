@@ -311,6 +311,7 @@ def _(c: Case):
                  LEFT,                     # plugins: ← back to platforms
                  "\r",                     # platforms: keep
                  DOWN + " \r",             # plugins: runner (default) + builder
+                 " \r",                    # skills: both checked by default → uncheck yj-dependency-security
                  "bad/env\r",              # environments: invalid → refused, stays
                  "\x7f" * 7 + "development, stage, production\r",  # environments (production: always made)
                  "a1, a2\r",               # backend names
@@ -324,7 +325,9 @@ def _(c: Case):
     c.says(out, "완료 — 적용 결과")
     c.has("backend/a1/apps", "backend/a2/apps", "frontend/f1/package.json", ".cursor/skills/yj-backend/SKILL.md",
           ".claude/skills/yj-frontend/SKILL.md", "tools/builder/frontend/builder.sh", "tools/secrets/frontend/f1/.env.local-dev")
-    c.hasnt("tools/secrets/backend", "tools/deployer")
+    c.hasnt("tools/secrets/backend", "tools/deployer", ".claude/skills/yj-dependency-security")
+    c.has(".cursor/skills/yj-secure-coding/SKILL.md")
+    c.contains(".yjcli/manifest.toml", 'skills = ["yj-secure-coding"]')
     c.has("tools/secrets/frontend/f1/.env.production", "tools/secrets/frontend/f1/.env.development",
           "tools/secrets/frontend/f1/.env.stage")
     c.says(out, "환경 production: 항상 만들어집니다")
@@ -355,9 +358,15 @@ def _(c: Case):
 # ================================================================= 2x add
 
 
-@case("20-add-commands", "추가: service·platform·plugin·llm·proto·secrets 명령, 기존 이름은 안내만")
+@case("20-add-commands", "추가: service·platform·plugin·llm·proto·secrets·skill 명령, 기존 이름은 안내만")
 def _(c: Case):
-    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1", "--plugin", "runner", "-y")
+    c.yjcli("wizard", "-l", "claude", "-n", "backend=a1", "--plugin", "runner", "--skill", "none", "-y")
+    c.hasnt(".claude/skills/yj-secure-coding")
+    c.yjcli("skill", "add", "yj-secure-coding", "-y")
+    c.has(".claude/skills/yj-secure-coding/SKILL.md")
+    c.contains("AGENTS.md", "`yj-secure-coding` — when writing")
+    c.says(c.yjcli("skill", "add", "yj-secure-coding", "-y"), "yj-secure-coding: 이미 있음")
+    c.says(c.yjcli("skill", "add", "yj-backend", "-y", expect=1), "알 수 없는 스킬")
     c.write("tools/secrets/backend/a1/.env.local-dev", "NAME=mine\n")
     out = c.yjcli("service", "add", "-n", "backend=a1,a2", "-y")
     c.says(out, "backend: a1: 이미 있음 (변경 없음)", "(+ backend/a2)")
@@ -394,7 +403,7 @@ def _(c: Case):
 @case("21-add-wizard-existing", "추가·삭제: 기존 저장소에서 마법사, 체크=추가 · 해제=삭제, 삭제가 있으면 기본은 취소")
 def _(c: Case):
     c.yjcli("wizard", "-l", "claude", "-n", "backend=a1,a2", "-n", "frontend=f1", "--plugin", "runner", "-y")
-    flow = ["\r", "\r", "\r",           # LLM, platforms, plugins: keep
+    flow = ["\r", "\r", "\r", "\r",     # LLM, platforms, plugins, skills: keep
             DOWN + " \r",               # backend services: uncheck a2
             "b3\r",                     # backend new names
             "\r",                       # backend options: keep
@@ -534,7 +543,7 @@ def _(c: Case):
 # ============================================================== 4x remove
 
 
-@case("40-remove-commands", "삭제: llm·plugin·service·platform·proto·secrets 를 폴더째 삭제, 공유 경로는 남김")
+@case("40-remove-commands", "삭제: llm·plugin·service·platform·proto·secrets·skill 을 폴더째 삭제, 공유 경로는 남김")
 def _(c: Case):
     c.yjcli("wizard", "-l", "cursor,claude", "-n", "backend=a1,a2", "-n", "frontend=f1", "-n", "backend-msa=m1",
             "--proto-lang", "go,dart", "--plugin", "runner,builder", "-y")
@@ -569,6 +578,10 @@ def _(c: Case):
             ".claude/skills/yj-backend-msa")
     c.lacks(".gitignore", "!proto/dist/")
 
+    c.says(c.yjcli("skill", "remove", "yj-dependency-security", "-y"), "- 폴더 삭제  .claude/skills/yj-dependency-security")
+    c.hasnt(".claude/skills/yj-dependency-security")
+    c.has(".claude/skills/yj-secure-coding/SKILL.md")
+    c.lacks("AGENTS.md", "yj-dependency-security")
     c.says(c.yjcli("secrets", "off", "frontend", "-y"), "- 폴더 삭제  tools/secrets/frontend")
     c.hasnt("tools/secrets/frontend")
     c.contains(".yjcli/manifest.toml", "secrets = false")

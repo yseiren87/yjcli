@@ -204,6 +204,8 @@ def drop_dependents(selected) -> tuple[list[str], list[str]]:
 class Skill:
     id: str
     routes: tuple[tuple[str, str], ...] = ()  # (path pattern, note) rows of the routing table
+    label: str = ""  # optional skills: wizard label (Korean)
+    when: str = ""  # optional skills: when to load it (English, AGENTS.md / yj-arch-core)
 
 
 CORE_SKILL = "yj-arch-core"
@@ -219,12 +221,18 @@ SKILLS: tuple[Skill, ...] = (
     Skill("yj-cli", (("cli/**", ""),)),
     Skill("yj-browser-extension", (("browser-extension/**", "(other than `native_*`)"),)),
     Skill("yj-scheduler", (("scheduler/**", ""),)),
+    # optional: chosen in yjcli, not by platform
+    Skill("yj-dependency-security", label="의존성 보안 (라이브러리 추가·변경 시 CVE 점검)",
+          when="when adding, upgrading, replacing or vendoring a third-party dependency"),
+    Skill("yj-secure-coding", label="시큐어 코딩 기본 규칙 (시크릿, 해시·암호화, 로그·예외 노출 …)",
+          when="when writing, modifying or reviewing code"),
 )
 SKILL = {s.id: s for s in SKILLS}
+OPTIONAL_SKILLS = tuple(s.id for s in SKILLS if s.label)
 
 
-def skills_for(platforms) -> list[str]:
-    wanted = {CORE_SKILL, *(s for p in platforms for s in PLATFORM[p].skills)}
+def skills_for(platforms, optional=()) -> list[str]:
+    wanted = {CORE_SKILL, *(s for p in platforms for s in PLATFORM[p].skills), *optional}
     return [s.id for s in SKILLS if s.id in wanted]
 
 

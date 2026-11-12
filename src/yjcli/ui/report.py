@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from yjcli.catalog import FIXED_ENVS, PLATFORM
+from yjcli.catalog import FIXED_ENVS, OPTIONAL_SKILLS, PLATFORM
 from yjcli.plan import Plan
 from yjcli.selection import Config
 
@@ -57,7 +57,8 @@ def summary(console: Console, plan: Plan, *, details: bool = False, diff_root: P
         table.add_row("secrets", ", ".join(f"{p} {'켬' if p in cfg.secrets else '끔'}" for p in services))
         table.add_row("환경", _with_diff([*FIXED_ENVS, *cfg.environments],
                                         [*FIXED_ENVS, *before.environments] if before else None))
-    table.add_row("스킬(자동)", ", ".join(plan.skills))
+    table.add_row("스킬(선택)", _with_diff(cfg.skills, before.skills if before else None) if cfg.skills or before else "없음")
+    table.add_row("스킬(자동)", ", ".join(s for s in plan.skills if s not in OPTIONAL_SKILLS))
     console.print(table)
     if table_only:
         return

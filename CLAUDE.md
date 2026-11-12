@@ -21,6 +21,7 @@ yjcli is a Python CLI (Typer + questionary + rich) that scaffolds YJ-architectur
 - `src/yjcli/repo.py` (manifest, repository state, version guard), `template.py` (template language, blocks), `references.py` (stale references).
 - `src/yjcli/ui/` — prompts, the wizard, the update wizard, plan/result reports. `src/yjcli/cli.py` — commands.
 - `src/yjcli/data/` — templates rendered into target repos (plugins, skills, root files).
+- `.claude/skills/yjcli-dev/` — expected behavior of every command, files to touch per kind of change, verification and pitfalls. Read it before changing yjcli behavior, and update it in the same change when it no longer matches.
 - `scripts/e2e.py` — end-to-end scenarios written into `sandbox/<case>/` (git-ignored), grouped by area (1x create, 2x add, 3x update, 4x remove, 5x arguments).
 
 ## Environment

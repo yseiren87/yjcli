@@ -45,6 +45,9 @@ class CatalogTests(unittest.TestCase):
     def test_every_skill_and_fragment_exists(self) -> None:
         for s in SKILLS:
             self.assertTrue((DATA / "skills" / s.id / "SKILL.md").is_file(), s.id)
+        for s in SKILLS:
+            if s.label:  # optional skills are not routed by folder
+                self.assertTrue(s.when and not s.routes, s.id)
         for p in PLATFORMS:
             for s in p.skills:
                 self.assertIn(s, [x.id for x in SKILLS])
