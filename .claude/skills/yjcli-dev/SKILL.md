@@ -77,7 +77,7 @@ Rules that hold everywhere:
 3. For add/remove behavior, run the real command in the scratchpad and read the manifest:
 
    ```bash
-   Y=/Users/yangs/Storage/Project/yjcli/.venv/bin/yjcli
+   Y=/Users/yangs/Storage/Project/Private/yjcli/.venv/bin/yjcli
    $Y wizard -l claude -n backend=a1 --plugin none -y
    $Y <thing> remove <id> -y && cat .yjcli/manifest.toml && ls <affected folders>
    $Y <thing> add <id> -y && cat .yjcli/manifest.toml
